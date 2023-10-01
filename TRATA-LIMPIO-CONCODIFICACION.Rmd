@@ -1,0 +1,1083 @@
+---
+title: "PREPARACION DE DATOS "
+description: |
+  preparacion de datos para trabajo fin de master 
+  
+author:
+  - name: Xuele Zou (NIE X8312956C)
+    affiliation: Universidad Complutense de Madrid
+    affiliation_url: 
+date: "`r Sys.Date()`"
+output:
+    distill::distill_article:
+        highlight: kate
+        colorlinks: true
+        code_folding: false
+        toc: true            
+        toc_depth: 3     
+---
+
+```{r setup, include = FALSE}
+# Ajuste comunes de los chunk
+knitr::opts_chunk$set(fig.width = 9, fig.asp = 1, out.width = "100%",
+                      message = FALSE, warning = FALSE,
+                      echo = TRUE, res = 400)
+```
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+# Datos {#datos}
+
+Debes hacer uso del **dataset de reservas de hotel**
+
+# Paquetes 
+```{r}
+library(tidyverse)
+library(tidymodels)
+library(tidyr)
+library(glue)
+library(corrplot)
+library(lubridate)
+library(forcats)
+library(timeDate)
+library(outliers)
+library(parallel)
+library(doParallel)
+library(ggplot2)
+library(skimr)
+library(readxl)
+library(openxlsx)
+
+
+#TRATA_BRUTO <- read_excel(path =  "C:/Users/Xuele/Documents/TFM/DATOSEXCEL.xlsx")
+
+TRATA_BRUTO <- read_excel(path =  "C:/Users/Xuele/Documents/TFM/DATOS HASTA 2023FEB.xlsx")
+
+
+```
+
+**Fecha 02/02/2023 : encontrado las explicaciones de las variables. **
+https://github.com/datos-justicia-argentina/Lucha-contra-la-trata-de-personas-llamados-linea-145-denuncias/blob/master/Lucha-contra-la-trata-de-personas-llamados-linea-145-denuncias-metadata.md
+
+Datos y descripcion de las variables. 
+
+Campos del recurso
+
+-fecha_ingreso (date): fecha en que se cargan los primeros datos en el sistema. Las denuncias son cargadas en el sistema al momento de realizarlas. Formato AAAA-MM-DD
+
+-hora_ingreso (datetime): hora en que se cargan los datos en el sistema. Formato hh:mm
+
+-nro_registro_interno (int): identificador de la denuncia. Permite relacionar a la denuncia con la tabla de personas referidas en las denuncias
+
+-situación (string): refiere a la evaluación que realiza la o el profesional que toma la consulta, según una serie de indicadores, en la cual determina si se trata de una urgencia o una emergencia. Esta evaluación determina el tipo de derivación que se efectúa.
+
+-origen (string): indica si la denuncia la realizó un ciudadano o una institución
+
+-es_anonima (string): toma valor Sí cuando no se identifica la persona que realiza la denuncia
+
+-tema (string): refiere a la problemática por la cual se realiza la denuncia. 
+
+subtema (string): refiere al subtema de la denuncia. 
+
+-provincia (string): provincia donde aconteció el hecho denunciado
+
+-localidad (string): localidad donde aconteció el hecho denunciado
+
+-dependencia_alta (string): dependencia desde la cual se cargó en el sistema la denuncia
+
+-via_ingreso (string): medio a través del cual ingresa la denuncia. Puede tomar los valores
+
+-derivacion_institucion (string): organismo al cual es derivada la denuncia para que lleve a cabo la judicialización o para su conocimiento. Cuando los hechos ocurren en la Ciudad de Buenos Aires el Programa Nacional de Rescate lleva adelante la judicialización. Si se trata de una emergencia se deriva a su vez a las Fuerzas Federales de Seguridad. 
+
+(Desde el día 1° de julio el PNR dejó de judicializar las denuncias. Se judicializa a través del Ministerio Público Fiscal (PROTEX) o en caso de tratarse de una emergencia a través de las Fuerzas Federales de Seguridad)
+
+-derivacion_fecha (string): fecha en la que se derivó la denuncia a otro organismo. Formato AAAA-MM-DD
+
+-derivacion_judicializa (string): toma valor Sí cuando la derivación termina siendo judicializada. No se judicializa en tanto sea una orientación
+
+**derivacion2_institucion (string): ídem derivacion_institucion
+
+**derivacion2_fecha (date): ídem derivacion_fecha
+
+**derivacion2_judicializa (string): ídem derivacion_judicializa
+
+**derivacion3_institucion (string): ídem derivacion_institucion
+
+**derivacion3_fecha (date): ídem derivacion_fecha
+
+**derivacion3_judicializa (string): ídem derivacion_judicializa
+
+-denunciante_nacionalidad (string): nacionalidad de la persona que realiza la denuncia
+
+-denunciante_provincia (string): provincia en la que se encuentra la persona que realiza la denuncia
+
+**denunciante_localidad (string localidad en la que se encuentra la persona que realiza la denuncia
+
+-denunciante_tipo (string): refiere al tipo de denunciante. 
+
+-denunciante_como_conocio_la_linea (string): refiere al medio por el cual conoció la línea la persona que realiza la denuncia
+
+-denunciante_genero (string): género de la persona que realiza la denuncia. Puede tomar los valores:
+
+.Hombre
+
+.Mujer
+
+.Transexual
+
+.Transgénero
+
+.Travesti
+
+-denunciante_edad_aparente (string): edad aparente de la persona que realiza la denuncia
+
+-provincia_indec_id (string): código de provincia desde la cual se realiza la denuncia, según la codificación de provincia implementada por INDEC (hasta 05/2019 nombre campo orientacion_provincia_indec_id)
+
+
+### Variables
+
+```{r}
+
+
+
+glimpse(TRATA_BRUTO)
+
+TRATA_BRUTO %>% skim()
+TRATA_BRUTO %>% filter((!is.na(hora_ingreso)))
+any(duplicated(TRATA_BRUTO$nro_registro_interno))
+
+ausencia <- colMeans(is.na(TRATA_BRUTO)) * 100
+
+dfau <- data.frame(variables = names(ausencia), ausencia)
+
+
+dfau <- dfau[order(dfau$ausencia, decreasing = TRUE), ]
+
+ggplot(dfau, aes(x = reorder(variables, -ausencia), y = ausencia)) +
+  geom_bar(stat = "identity", fill = "blue") +
+  labs(x = "Variables", y = "Porcentaje de Ausencia", title = "Nivel de Ausencia de Variables") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+
+
+valores_unicos <- lapply(TRATA_BRUTO, unique)
+
+df_valores_unicos <- stack(valores_unicos)
+df_valores_unicos <- data.frame(variables = df_valores_unicos$ind, valores_unicos = df_valores_unicos$values)
+
+
+df_valores_unicos <- df_valores_unicos[order(df_valores_unicos$valores_unicos, decreasing = TRUE), ]
+
+ggplot(df_valores_unicos, aes(x = reorder(variables, valores_unicos), y = ..count..)) +
+  geom_bar(fill = "blue") +
+  labs(x = "Variables", y = "Cantidad de Valores Únicos", title = "Valores Únicos de Variables") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+ **Memoria dia 19 de enero de 2023** lo que hizo primer paso de la preparacion de dats es exportar el archivo csv usando la funcion read_csv, luego con la funcion de glimpse , se identifica los tipos de variables. Seguidamente, gracias a la funcion de skim, permite facilitar el proceso de visualizacion y estudio de las variables, los valores ausentes y los atipicos en caso de las variables numericas. 
+ 
+
+  
+```{r}
+TRATA<- TRATA_BRUTO #TRATA BRUTO PARA REALIZAR LA FASE EXPLORATORIO Y TRATA PARA REALIZAR LOS CAMBIOS 
+
+
+
+
+
+TRATA<- TRATA %>%  select(-c(derivacion2_institucion,tema, derivacion2_judicializa, derivacion3_institucion, derivacion3_judicializa,	denunciante_nacionalidad, denunciante_provincia,  denunciante_localidad, denunciante_como_conocio_la_linea, 	hora_ingreso, derivacion2_fecha, derivacion3_fecha))
+
+TRATA_BRUTO
+
+#vuelve a hacer el skim de DATOS 
+TRATA_BRUTO %>% skim
+
+
+
+```
+
+**dia 31 de enero de 2023** queria eliminar las variables que tiene un ratio de complesion que no llega a 50% que son 	derivacion2_institucion, derivacion2_judicializa, derivacion3_institucion, derivacion3_judicializa,	denunciante_nacionalidad, denunciante_provincia,  denunciante_localidad, denunciante_como_conocio_la_linea, 	hora_ingreso, derivacion2_fecha, derivacion3_fecha,nro_registro_interno,tema.
+
+**Fecha 02/02/2023**
+En nuestro muestro no es necesario sacar muestra porque en si datos no son excesivamente abundantes.
+
+#FASE EXPLORATORIO
+
+limpieaza de variable denunciante_tipo , agrupado las categorias.
+
+Encontrado posibles variables objetivos. una ideda de varibale objetivo,encontrar un modelo de clasificar la ciudad o provincia de victimas. Variable tipo de denunciante
+
+Se podria realizar: modelos de clasficacion que identificar si son las victimas que los hacen llamadas o no son victimas. O son victimas e insitutciones que hacen llamadas o son los ciudadanos.
+
+Modelo de clustering, detectar cuantos tipos de cluster hay de trata hay.
+
+
+#1. denunciante_tipo
+
+
+
+```{r}
+
+
+
+TRATA_BRUTO %>% 
+  count(denunciante_tipo) %>%
+  mutate(porc = 100*n/sum(n))#Deberia agrupar los denunciantes segun su categoria. 
+
+```
+**Fecha 02/02/2023**De esta variable, deberia agrupar Denunciante - institucion y Denunciante - institución, son de misma categoria. Lo mismo para Denunciante - victima directa y Denunciante - víctima directa; Denunciante - victima indirecta y Denunciante - víctima indirecta. Eliminado los ausentes. 
+
+
+**Fecha 06/03/2023**
+```{r}
+TRATA_BRUTO %>% skim()
+
+```
+
+
+
+#2.VARIABLE OBJETIVO: subtema
+
+Utilizar estos datos como train y los de otros años anteriores como test, averiguar si esta correcto el modelo en la captacion de las victimas de trata de personas en explotacion sexual. 
+```{r}
+TRATA_BRUTO %>% 
+  count(subtema) %>%
+  mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+ 
+
+
+
+```
+**Subtema: fecha 06/02/2023** agrupar los datos que contenga sexual y pasar todo ello a explotacion sexual, lo que contenga laboral, pasar a explotacion laboral, los demas que son muy pocos entre tantos, se le nombra como "otros". 
+1) Explotacion sexual
+0) no explotacion sexual 
+
+
+
+
+#3.fecha_ingreso
+```{r}
+
+TRATA_BRUTO %>% 
+  count(fecha_ingreso) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+
+
+
+```
+**06/02/2023 ver que mes tiene  mayor llamada de los incidencias.**
+Visualmente, el mes de agosto es el mes que tiene mayor llamada sobre temas de trata. 
+
+
+#4.situacion
+
+```{r}
+TRATA_BRUTO %>% 
+  count(situacion) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+
+
+```
+
+**06/02/2023** Ver la proporcion de la situacion en el momento de la llamada, tiene mayor frecuencia la de urgencia. Y hay un 0.18% de datos ausentes, podriamos hacer eliminacion o sustituir por su moda. 
+
+**08/03/2023** Elimine los ausentes de variable situacion que son 8 observaciones. 
+
+#5.origen
+```{r}
+
+
+
+TRATA_BRUTO %>% 
+  count(origen) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+
+
+```
+**08/02/2023** Como muchos de las categorias sueltas son diferentes insitutciones, podria agrupar y llamarlo solo insitutcion. 
+
+
+#6.es_anonima
+```{r}
+TRATA_BRUTO %>% 
+  count(es_anonima) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+
+
+```
+#7.provincia
+
+```{r}
+TRATA_BRUTO %>% 
+  count(provincia) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+
+
+```
+
+**08/02/2023** Quitar los espacios
+
+
+
+#8.localidad
+```{r}
+TRATA_BRUTO %>% 
+  count(localidad) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+
+
+
+```
+
+
+
+**13/02/2023** Ha detectado varias localidades repetidas con la diferencia de mayuscula y minuscula, o con tilde sin tilde. Todos los repetidos pasarán a ser una unica localidad. 
+
+
+#9.dependencia_alta
+
+```{r}
+TRATA_BRUTO %>% 
+  count(dependencia_alta) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+```
+
+**14/02/2023** Eliminar esa variable, no aporta informacion.
+
+
+#10.via_ingreso
+
+```{r}
+TRATA_BRUTO %>% 
+  count(via_ingreso) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+```
+**14/02/2023**Agrupado los datos en siguientes categorias. 
+Línea 145
+
+Correo institucional
+
+Teléfono institucional (no salientes)
+
+Presencial
+
+Lamadas salientes
+
+Llamadas realizadas por seguimiento
+
+Línea 149 - CENAVID
+
+**08/03/2023** Al final decide agrupar todos los demas en una variable binaria,porque otras categorias son muy minoritarias y no tiene mucha informacion. 
+
+#11.derivacion_institucion
+
+```{r}
+TRATA_BRUTO %>% 
+  count(derivacion_institucion) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+
+
+```
+
+**08/03/2023** En principio lo unificaria como ha puesto e la pagina web de rescate linea 145 que agrupara segun categoria que le corresponde. Sin embargo, debido a que hay algunos con pocas observaciones, decido unirlos como otros (Comisarías,Juzgado/Fiscalía y Oficina de Monitoreo)
+
+#12.derivacion_judicializa
+
+```{r}
+TRATA_BRUTO %>% 
+  count(derivacion_judicializa) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+
+```
+
+
+#13.denunciante_genero
+Hombre
+
+Mujer
+
+Transexual
+
+Transgénero
+
+Travesti
+
+```{r}
+TRATA_BRUTO %>% 
+  count(denunciante_genero) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+TRATA_BRUTO %>% 
+  count(denunciante_genero)
+
+
+```
+**14/2/2023**  agrupar los que son de mismo categoria , mujer trans y varon trans lo categorice como su genero fisica. Los demas, tanto ausentes como trans  travesti pero no se sabe el genero esta agrupado como DESCONOCE. 
+**26/3/2023** Lo ha desglosado la categoria DESCONOCE a hombre y mujer, segun la proporcion que tenia sumando "hombre" y "mujer" que sale a 2816 , y cada grupo tiene un porcentaje de 0.38 y 0.61 respectivamente. 
+
+
+#provincia_indec_id
+
+```{r}
+TRATA_BRUTO %>% 
+  count(provincia_indec_id) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+TRATA <- TRATA %>% mutate(provincia_indec_id = as.character(provincia_indec_id))
+
+
+
+TRATA <-TRATA %>%mutate(provincia_indec_id = fct_explicit_na(provincia_indec_id, "Otros"))
+
+TRATA%>% 
+  count(provincia_indec_id) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+contingencia <- table(TRATA$provincia, TRATA$provincia_indec_id)
+
+test_chi_cuadrado <- chisq.test(contingencia)
+
+
+test_chi_cuadrado
+
+#Como resultado, p valor es menor que 0.5,  rechazamos la hipótesis nula y vamos a eliminar esta variable. 
+```
+
+#14.denunciante_edad_aparente
+```{r}
+
+TRATA_BRUTO%>% 
+  count(denunciante_edad_aparente) %>% 
+  mutate(porc = 100*n/sum(n))
+
+
+plot(TRATA_BRUTO$denunciante_edad_aparente, TRATA_BRUTO$nro_registro_interno, 
+     xlab = "EDAD", ylab = "Nºregistro", 
+     main = "Grafico de dispersion entre nº registro y Edad de denunciante")
+
+
+
+```
+
+Pasar los que tenga 0 edad a no se sabe.
+Recategorizar el grupo de edad en 6 tramos 
+
+
+#15.derivacion_fecha
+```{r}
+TRATA_BRUTO %>% 
+  count(derivacion_fecha) %>% 
+  mutate(porc = 100*n/sum(n))
+
+
+
+
+```
+**15/02/2023**Separar la fecha y la hora y calcular los dias transcurridos cuando el operador reciba la llamada hasta que deriva a un institucion correspondiente. He pasado la diferencia que sea de -1 a 0, porque en realidad es de mismo dia. 
+
+Sque tambien los dias de la semana a partide la de derivacion fecha, y partes del dia, a partir de la 
+
+```{r}
+
+dput(names(TRATA_BRUTO))
+listavarcate <- c("situacion", 
+"origen", "es_anonima", "subtema", "provincia", "localidad", 
+"via_ingreso", "derivacion_institucion", 
+ "derivacion_judicializa", "denunciante_tipo", 
+"denunciante_genero")
+
+
+for (var in listavarcate) {
+  tabla <- table(TRATA_BRUTO[, var])
+  barplot(tabla, main=var)
+}
+
+c("situacion", 
+"origen", "es_anonima", "subtema", "provincia", "localidad", 
+"via_ingreso", "derivacion_institucion", 
+ "derivacion_judicializa", "denunciante_tipo", 
+"denunciante_genero")
+
+```
+
+
+
+
+#FASE MODIFICACION
+
+##1 denunciante tipo 
+```{r}
+glimpse(TRATA)
+
+
+TRATA <- TRATA %>% mutate_if(is.character, as.factor)
+
+TRATA$denunciante_tipo <- TRATA$denunciante_tipo %>% 
+  recode("Denunciante - víctima directa" = "Denunciante - victima directa")%>% 
+  recode("Denunciante - víctima indirecta" = "Denunciante - victima indirecta") %>% 
+  recode("Denunciante - institución" = "Denunciante - institucion")
+
+TRATA<-TRATA |> mutate(denunciante_tipo = fct_explicit_na(denunciante_tipo, "Otros"))
+
+TRATA$denunciante_tipo <- TRATA$denunciante_tipo %>% 
+  recode("Denunciante - victima directa" = "DVD")%>% 
+  recode("Denunciante - victima indirecta" = "DVI") %>% 
+  recode("Denunciante - institucion" = "DI") %>% 
+  recode("Denunciante - ciudadano" = "DC")
+
+
+
+
+TRATA %>% 
+  count(denunciante_tipo) %>%
+  mutate(porc = 100*n/sum(n))
+
+
+
+
+
+```
+
+
+
+##2 subtema 
+```{r}
+
+
+library(stringr)
+
+ #primero limpiar datos y agrupar segun categoria, porque dato esta muy desorganizado.
+
+
+#primero solo cogi la palabra sexual y vi que hay mas palabras que esya relacionada con explotacion sexual, como por ejemplo , pornografia, por eso, añadi una palabra mas para que tambien se incluyera en la categoria de explotacion sexual. 
+TRATA %>% 
+  mutate(subtema1 = ifelse(str_detect(subtema, "(?i)sexual|porno"), "sexual",
+                            ifelse(str_detect(subtema, "(?i)laboral"), "laboral", subtema))) |> 
+  count(subtema1) %>%mutate(porc = 100*n/sum(n))#ver los restos de tipos para asegurar que no hay nada mas palabra relacionada con explotacion sexual 
+
+TRATA<-
+  TRATA %>% 
+  mutate(subtema1 =  ifelse(str_detect(subtema, "(?i)sexual|porno"), 
+                                    "1", 
+                                           "0"))
+
+TRATA<-TRATA |> mutate(subtema1 = fct_explicit_na(subtema1, "0"))
+TRATA%>% 
+  count(subtema1) %>%mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+
+```
+
+
+```{r}
+
+TRATA %>% 
+  group_by(denunciante_tipo) %>% 
+  count(subtema1)
+
+ggplot(TRATA, aes(x = denunciante_tipo, fill = subtema1)) +
+  geom_bar()
+```
+**Subtema: fecha 06/02/2023**Este paso lo queria ver que tipo de denunciante tiene mayor frecuencia sobre la explotacion sexual, y como resultado, 
+vemos que los ciudadanos tiene un mayor frecuencia en hacer las llamadas. 
+
+
+##3 fecha de ingreso 
+```{r}
+
+
+#crear una nueva varible que solo trata del mes
+
+TRATA <- TRATA%>% mutate(MESES = format(as.Date(fecha_ingreso), "%m"))
+
+TRATA$MESES<-TRATA$MESES |> 
+  recode("01"="Enero") |> 
+  recode("02"="Febrero") |> 
+  recode("03"="Marzo") |>
+  recode("04"="Abril") |>
+  recode("05"="Mayo") |>
+  recode("06"="Junio") |>
+  recode("07"="Julio") |>
+  recode("08"="Agosto") |>
+  recode("09"="Septiembre") |>
+  recode("10"="Octubre") |>
+  recode("11"="Noviembre") |>
+  recode("12"="Diciembre") 
+TRATA %>% count(MESES)
+
+
+TRATA %>% 
+  group_by(MESES) %>% 
+  count(subtema1) %>% 
+  mutate(porc = 100*n/sum(n))
+
+TRATA %>% 
+  group_by(MESES) %>% 
+  count(denunciante_tipo) %>% 
+   mutate(porc = 100*n/sum(n))
+
+ggplot(TRATA, aes(x = MESES, fill = subtema1)) +
+  geom_bar()
+
+TRATA <- TRATA %>%
+  mutate(weekday_ingreso = weekdays(as.Date(fecha_ingreso)))
+#SACAR DIA DE LA SEMANA
+
+TRATA %>% count(weekday_ingreso)
+
+```
+
+##4 situacion 
+```{r}
+
+
+TRATA<-TRATA %>% drop_na(situacion)
+
+
+
+TRATA %>% 
+  count(situacion) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+
+```
+
+##5 origen 
+```{r}
+
+
+TRATA<-
+  TRATA %>%
+  mutate(origen =  ifelse(str_detect(origen, "(?i)Institución"),
+                                           "Institucion", origen)) #13/02/2023
+
+
+TRATA %>% 
+  count(origen) %>% 
+   mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+
+
+
+```
+
+##6 es_anonima
+```{r}
+TRATA<- TRATA |> drop_na(es_anonima)
+
+TRATA %>% 
+  count(es_anonima) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+```
+
+##7 provincia
+```{r}
+
+
+TRATA<-TRATA |> mutate(provincia = fct_explicit_na(provincia, "Otros"))
+
+
+TRATA$provincia<-gsub(" ", "_", TRATA$provincia)
+
+TRATA %>% 
+  count(provincia) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+```
+
+##8 localidad
+```{r}
+
+
+
+
+TRATA$localidad <- TRATA$localidad %>% 
+  recode("Ciudad Autónoma de Bs As" = "CiudadABuenosAires") |> 
+  recode("Aarón Castellanos, Santa Fe" = "AarónCastellanos") |> 
+  recode("Adrogue" = "Adrogué") |> 
+  recode("alderete"= "Alderetes") |> 
+  recode("alderetes"= "Alderetes") |> 
+  recode("Alderete"= "Alderetes") |> 
+  recode("ALIJILIAN"= "Alijilán") |> 
+  recode("allen"= "Allen") |> 
+  recode("ALLEN"= "Allen") |> 
+  recode("almirante brown"= "AlmiranteBrown") |> 
+  recode("ALMIRANTE BROWN"= "AlmiranteBrown") |> 
+  recode("Berazategui Oeste"= "Berazategui") |>
+  recode("Bernal Oeste"= "Bernal") %>% 
+  recode("caballito"= "Caballito") %>% 
+  recode("Consitutción"= "Constitucion") %>% 
+  recode("Constitución"= "Constitucion") %>% 
+  recode("Coronel Suárez"= "CoronelSuarez") |> 
+  recode("colonia santa rosa"= "ColoniaSantaRosa") %>% 
+  recode("CORDOBA"= "Córdoba") %>% 
+  recode("corrientes"= "Corrientes") %>% 
+  recode("Cutral Có"= "CutralCo") %>% 
+  recode("Departamento Unión"= "DepartamnetoUnion") |> 
+  recode("Embarcación"= "Embarcacion") |> 
+  recode("entre rios"= "EntreRíos") |> 
+  recode("Esteban Ecgeverría"= "EstebanEcheverria") |> 
+  recode("Esteban Echeverría"= "EstebanEcheverria") |> 
+  recode("Ezpeleta Oeste"= "Ezpeleta") |> 
+  recode("Federación"= "Federacion") |> 
+  recode("Fkores"= "Flores") |> 
+  recode("Flores Oeste"= "Flores") %>% 
+  recode("FREIRE"= "Freyre") |> 
+  recode("Garín"= "Garin") |> 
+  recode("Garupá"= "Garupa") |> 
+  recode("General Ballivián"= "GeneralBallivian") %>% 
+  recode("General Rodríguez"= "GeneralRodriguez") %>% 
+  recode("grand bourg"= "GrandBourg") |> 
+  recode("guaymallen"= "Guaymallen") |> 
+  recode("Guaymallén"= "Guaymallen") |> 
+  recode("Guaymayen"= "Guaymallen") |> 
+  recode("guatmayen"= "Guaymallen") |> 
+  recode("ituzaingo"= "Ituzaingó") |> 
+  recode("Jardín America"= "JardínAmérica") |> 
+  recode("Jose C Paz"= "JoseC.Paz") |> 
+  recode("José C. Paz"= "JoseC.Paz") |> 
+  recode("Joséfina"= "Josefina") |> 
+  recode("José León Suárez"= "JoseLeonSuarez") %>% 
+  recode("la matanza"= "LaMatanza") |> 
+  recode("la plata"= "LaPlata") |> 
+  recode("LA Plata"= "LaPlata") |> 
+  recode("LA PLATA"= "LaPlata") |> 
+  recode("Lanús"= "Lanus") |> 
+  recode("Lanús Este"= "Lanus") |> 
+  recode("Lanús Oeste"= "Lanus") |> 
+  recode("liniers"= "Liniers") |> 
+  recode("mar del plata"= "MardelPlata") |> 
+  recode("MAR DEL PLATA"= "MardelPlata") |> 
+  recode("mataderos"= "Mataderos") |> 
+  recode("MEndoza"= "Mendoza") |> 
+  recode("MACHAGAI"= "Machagai") %>% 
+  recode("Maipú"= "Maipu") %>% 
+  recode("MENDOZA"= "Mendoza") %>% 
+  recode("merlo"= "Merlo") %>% 
+  recode("once"= "Once") |> 
+  recode("Paraná"= "Parana") |> 
+  recode("Pilar Centro"= "Pilar") |> 
+  recode("Quilmes Oeste"= "Quilmes") |> 
+  recode("Quimilí"= "Quimili") |> 
+  recode("ramos mejia"= "RamosMejía") |> 
+  recode("Río Ceballos"= "RioCeballos") |> 
+  recode("Río Gallegos"= "RioGallegos") |>  
+  recode("Río Grande"= "RioGrande") |> 
+  recode("saenz peña"= "SáenzPeña") |> 
+  recode("salta capital"= "Salta") |> 
+  recode("San Carlos Centro"= "SanCarlos") |> 
+  recode("San Martín"= "SanMartin") |> 
+  recode("San Martín de los Andes"= "SanMartindelos Andes") |> 
+  recode("SAN MIGUEL"= "SanMiguel") |> 
+  recode("santa rosa"= "SantaRosa") |> 
+  recode("Santo Tomé"= "SantoTome") |> 
+  recode("tartagal"= "Tartagal") |> 
+  recode("trelew"= "Trelew") |> 
+  recode("Tunuyán"= "Tunuyan") |> 
+  recode("Villa Domínico"= "VillaDominico") |> 
+  recode("Villa Gobernador Gálvez"= "VillaGobernadorGalvez") |> 
+  recode("Zárate"= "Zarate") |> 
+  recode("Neuquén"= "Neuquen") 
+  
+  
+ TRATA$localidad<-gsub(" ", "_", TRATA$localidad)
+
+# Creamos una nueva columna con la categoría "Otros" para las categorías con frecuencia menor a 5
+TRATA <- TRATA %>%
+  mutate(localidad = ifelse(localidad %in% names(table(localidad))[table(localidad) < 11], "otros", localidad))
+TRATA<-TRATA |> mutate(localidad = fct_explicit_na(localidad, "otros"))
+
+
+TRATA %>%
+  count(localidad) %>% 
+  arrange()
+TRATA %>%
+  count(localidad) %>% 
+  arrange() %>% 
+  mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+
+TRATA |> select(provincia, localidad)
+
+```
+
+##9
+```{r}
+```
+
+##10 via ingreso 
+```{r}
+
+
+TRATA <-TRATA %>%
+  mutate(via_ingreso=fct_collapse(via_ingreso, NOLINEA145 = c("Telefono_institucional","celular institucional","telefono institucional","teléfono institucional","Teléfono institucional","TELÈFONO INSTITUCIONAL","teléfono de la coordinación","Teléfono de la Coordinación General del PNR","teléfono del Ministerio","institucional","Coordinación general","Coordinacion","Coordinación del Programa Nacional de Rescate","Coordinacion PNR","Por seguimiento","Solicitada por Juzgado","llamada saliente desde Línea 145","Correo Institucional","Enviada a la coordinacion general del programa","Línea 149","Por referencia de otra víctima y de la casa de la provincia de Misiones","Otra","Llamada no pertinente","llamada no pertinente","Presencial","Mail institucional","Formulario_web"),
+Línea145=c("Línea 145","Nos comunicamos desde la linea 145")))
+
+
+
+TRATA <-TRATA %>%mutate(via_ingreso = fct_explicit_na(via_ingreso, "NOLINEA145"))
+
+
+TRATA %>% 
+  count(via_ingreso) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+```
+
+##11 derivacion institucion 
+```{r}
+
+
+TRATA <-TRATA %>% 
+  mutate(derivacion_institucion=fct_collapse(derivacion_institucion, 
+Programas_de_ayuda_a_víctimas = c("Área Legal del Programa Nacional de Rescate", "Programa Las Víctimas contra las Violencias", "Área de Seguimiento del Programa Nacional de Rescate"),
+OrgSeguridad=c("Gendarmería Nacional Argentina", "Policía Federal Argentina", "Prefectura Naval Argentina", "Policía de Seguridad Aeroportuaria", "Policía de la Provincia de Santa Cruz", "Comando radioeléctrico 911", "Policía Federal de San Luis (D.U.O.F)", "Senac Rio Negro","PREFECTURA NAVAL ARGENTINA","comisaria 28 flores","DDI de Mar del Plata","Delegación Operativa de la Policía Federal de San Luis.","Policia de la Provincia de Santa Cruz","Senac Rio Negro por","Ministerio de Seguridad","División de Investigaciones especiales de la Policía Federal de Mar del Plata."),
+OrgJusticia=c("Juzgado / Fiscalía, Fiscalía Antidrogas N° 1", "Fiscalía Federal N 1 de Mar del Plata a cargo de la Dra. Mazaferri", "Fiscalía Federal Nº 2 a cargo del Dr. Giffi", "Fiscalía Federal Nº 2 de Mar del Plata", "Juzgado - Fiscalía", "División de Investigaciones especiales de la Policía Federal de Mar del Plata","Juzgado / Fiscalía","Fiscalía Antidrogas N° 1"),
+Servicios_de_emergencia=c("911", "Oficina de monitoreo", "Comisarías", "Desaparición de Personas", "personas extraviadas", "911 operadora 615", "Min. Seguridad - Personas Extraviadas","Personas extraviadas","Personas Extraviadas","PERSONAS EXTRAVIADAS"),
+Otros=c("Delitos Informáticos")
+))
+
+
+TRATA <-TRATA %>%mutate(derivacion_institucion = fct_explicit_na(derivacion_institucion, "Otros"))
+
+TRATA %>% 
+  count(derivacion_institucion) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+
+TRATA %>% 
+  select(via_ingreso,derivacion_institucion)
+
+```
+
+##12 derivacion judicializa
+```{r}
+
+
+TRATA <-TRATA %>%mutate(derivacion_judicializa = fct_explicit_na(derivacion_judicializa, "Otros")) 
+  TRATA$derivacion_judicializa <-TRATA$derivacion_judicializa |> recode("No"="Otros")
+  
+  
+  TRATA %>% 
+  count(derivacion_judicializa) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+  
+```
+
+##13 denunciante genero 
+```{r}
+
+
+TRATA <-TRATA %>% 
+  mutate(denunciante_genero=fct_collapse(denunciante_genero, 
+Mujer = c("Mujer","Mujer cis","Mujer trans - travesti"),
+Hombre =c("Hombre","Varón cis","Varón trans"),
+Desconoce=c("Intersex","No binario","Transexual","Transgénero","Travesti","Ninguna de las anteriores","No sabe / no contesta","Transgenero")))
+
+TRATA <-TRATA %>%mutate(denunciante_genero = fct_explicit_na(denunciante_genero, "Desconoce"))
+
+TRATA %>% 
+  count(denunciante_genero) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+
+TRATA <- TRATA %>% 
+  mutate(denunciante_genero1 = ifelse(denunciante_genero == "Desconoce",
+                                      ifelse(runif(n()) <= 0.6, "Mujer", "Hombre"),
+                                      denunciante_genero)) 
+
+TRATA %>% 
+  count(denunciante_genero1) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+
+TRATA$denunciante_genero1 <- TRATA$denunciante_genero1 %>% 
+  recode("1" = "Hombre") |> 
+  recode("3" = "Mujer") 
+
+
+TRATA %>% 
+  count(denunciante_genero1) %>% 
+    mutate(porc = 100*n/sum(n)) %>% 
+  arrange(desc(porc))
+
+
+```
+
+##14 denunciante edad aparente 
+```{r}
+
+
+TRATA <- TRATA %>%  
+  mutate(denunciante_edad_aparente = ifelse(denunciante_edad_aparente == 0, NA, denunciante_edad_aparente))
+
+
+
+TRATA <- TRATA %>%
+  mutate(denunciante_edad_aparente = case_when(
+    is.na(denunciante_edad_aparente) ~ "Desconoce",
+    denunciante_edad_aparente < 17 ~ "1a16",
+    denunciante_edad_aparente < 30 ~ "17a29",
+    denunciante_edad_aparente < 45 ~ "30a44",
+    denunciante_edad_aparente < 65 ~ "45a64",
+    TRUE ~ "65+"
+  ))
+
+
+
+TRATA %>% 
+  count(denunciante_edad_aparente) %>% 
+  mutate(porc = 100*n/sum(n))
+
+```
+
+##15 derivacion fecha 
+```{r}
+
+
+TRATA <- TRATA %>% 
+  mutate(derivacion_fecha_fecha = as.Date(derivacion_fecha),
+         derivacion_fecha_hora = format(derivacion_fecha, "%H:%M:%S"))
+
+TRATA %>% 
+  select(derivacion_fecha_fecha,derivacion_fecha_hora)
+
+
+
+TRATA<-TRATA %>% mutate(dias_transcurridos = difftime(TRATA$derivacion_fecha_fecha, TRATA$fecha_ingreso, units = "days"))
+
+
+TRATA$dias_transcurridos <- ifelse(TRATA$dias_transcurridos < 0, 0, TRATA$dias_transcurridos)
+#SACAR EL dias_transcurridos desde la fecha ingreso a que inicie la derivacion judiciada
+
+TRATA %>% count(dias_transcurridos)
+
+
+
+TRATA <- TRATA %>%
+  mutate(hora_categ = cut(as.numeric(substr(derivacion_fecha_hora, 1, 2)), 
+                          breaks = c(-Inf, 6, 12, 19, Inf),
+                          labels = c("Madrugada", "Mañana", "Tarde", "Noche")))
+
+TRATA %>% count(hora_categ)
+
+TRATA |> select(weekday_ingreso, dias_transcurridos)
+
+
+```
+
+
+#CHISQ
+```{r}
+
+
+
+
+chisq <-
+  tibble("variable" = TRATA %>% select(where(is.factor)) %>% names(),
+         "p_value" = TRATA %>% select(where(is.factor)) %>%
+           map_dbl(.f = function(x) { chisq.test(TRATA$subtema1, x)$p.value}))
+
+
+chisq %>% arrange(desc(p_value))
+
+chisq %>% filter(p_value < 0.05)
+
+
+library(ggplot2)
+
+
+ggplot(data = chisq, aes(x = reorder(variable, p_value), y = -log10(p_value))) +
+  geom_bar(stat = "identity", fill = "#69b3a2", width = 0.7) +
+  coord_flip() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 0.5, hjust=1))
+
+
+
+```
+
+
+# DATOS LIMPIOS
+```{r}
+
+
+
+TRATA<- TRATA %>%  select(-c(subtema,fecha_ingreso,provincia_indec_id,dependencia_alta,denunciante_genero,derivacion_fecha,derivacion_fecha_fecha,derivacion_fecha_hora,origen))
+
+
+
+TRATA %>% skim
+
+
+TRATA<-TRATA %>% drop_na(dias_transcurridos)
+
+TRATA %>% skim
+```
+```{r}
+write.xlsx(TRATA, file = "TRATA_limpia.xlsx", rowNames = FALSE) 
+
+save(TRATA, file = "TRATACodificada.RDA")
+getwd()
+dput(names(TRATA))
+
+TRATA %>% filter(nro_registro_interno == 505051525)
+
+
+```
+
+
+
+
+```{r}
+TRATA_TEST2 <- read_excel(path =  "C:/Users/Xuele/Documents/MACHINE LEARNING/TEMA 6/TRATA 202001-202304.xlsx")
+
+ids_completos1 <- unique(TRATA_TEST2$nro_registro_interno)
+ids_guardados1 <- unique(TRATA$nro_registro_interno)
+
+ids_no_guardados1 <- setdiff(ids_completos1, ids_guardados1)
+
+
+ids_no_guardados1
+
+TRATA_TEST2 <- TRATA_TEST2[TRATA_TEST2$nro_registro_interno %in% ids_no_guardados1, ]
+
+write.xlsx(TRATA_TEST2, file = "TRATA_TEST2.xlsx", rowNames = FALSE) 
+
+```
+
+
+

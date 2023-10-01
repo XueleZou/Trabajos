@@ -1,0 +1,619 @@
+---
+title: "TRATA"
+author: "Xuele"
+date: "2023-03-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#Datos
+```{r}
+setwd("C:/Users/Xuele/Documents/MACHINE LEARNING/TEMA 6")
+#setwd("C:/Users/Xuele/Documents/WeChat Files/wxid_rk9499725zdh11/FileStorage/File/2023-03/TEMA6")
+library(parallel)
+library(doParallel)
+library(plyr)
+library(caret)
+library(dummies)
+library(ggplot2)
+library(ggplot2)
+library(randomForest)
+library(naniar)
+library(MASS)
+library(caret)
+library(MXM)
+library(dplyr)
+GS_T0 <- Sys.time()
+cluster <- makeCluster(detectCores() - 1) # number of cores, convention to leave 1 core for OS
+registerDoParallel(cluster) # register the parallel processing
+
+
+source("funcion steprepetido binaria.R")
+source("cruzadas avnnet y log binaria.R")
+
+
+load("TRATACodificada.rda")
+
+dput(names(TRATA))
+
+```
+c("situacion", "es_anonima", "provincia", "via_ingreso", "derivacion_institucion", 
+"derivacion_judicializa", "denunciante_tipo", "denunciante_edad_aparente", 
+"subtema1", "MESES", "weekday_ingreso", "localidad1", "denunciante_genero1", 
+"dias_transcurridos", "hora_categ")
+
+
+#Combinacion de datos 
+```{r}
+
+listconti<-c("dias_transcurridos")
+listclass<-c("situacion", "es_anonima", "provincia", "via_ingreso", "derivacion_institucion", 
+"derivacion_judicializa", "denunciante_tipo", "denunciante_edad_aparente", 
+ "MESES", "weekday_ingreso", "denunciante_genero1", "hora_categ","nro_registro_interno")
+vardep<-c("subtema1")
+TRATA<-TRATA[,c(listconti,listclass,vardep)]
+
+```
+
+#Transformacion de datos 
+```{r}
+# Borro observaciones con algún missing 
+
+
+TRATA2<-na.omit(TRATA)
+
+# Copio  y pego de otros ejemplos estandarización continuas
+
+means <-apply(TRATA2[,listconti],2,mean,na.rm=TRUE)
+sds<-sapply(TRATA2[,listconti],sd,na.rm=TRUE)
+
+TRATA2.2<-scale(TRATA2[,listconti], center = means, scale = sds)
+
+TRATA2<-data.frame(cbind(TRATA2.2,TRATA2[,c(listclass,vardep)]))
+TRATASINTARGET<-TRATA2
+
+load("TRATA_LOC_encoder.RDA")
+load("TRATA_PROV_encoder.RDA")
+
+
+UNIR <- merge(merge(PROV, LOC, all = TRUE), TRATA2, all = TRUE)
+
+
+
+subset(UNIR, nro_registro_interno == 505051525)
+
+dput(names(UNIR))
+
+c("nro_registro_interno", "provincia", "subtema1", "targetbin1", 
+"targetbinloc1", "localidad1", "dias_transcurridos", "situacion", 
+"es_anonima", "via_ingreso", "derivacion_institucion", "derivacion_judicializa", 
+"denunciante_tipo", "denunciante_edad_aparente", "MESES", "weekday_ingreso", 
+"denunciante_genero1", "hora_categ")
+
+
+listconti<-c("dias_transcurridos","targetbin1","targetbinloc1")
+listclass<-c("situacion", "es_anonima",  "via_ingreso", "derivacion_institucion", 
+"derivacion_judicializa", "denunciante_tipo", "denunciante_edad_aparente", 
+ "MESES", "weekday_ingreso", "denunciante_genero1", "hora_categ")
+vardep<-c("subtema1")
+
+TRATA2<-UNIR[,c(listconti,listclass,vardep)]
+dput(names(TRATA2))
+
+```
+
+
+
+```{r}
+
+# Lista de Frecuencias de las categóricas, útil pues algunos niveles
+# con pocas observaciones no deben ser tenidos en cuenta 
+# en modelos de machine learning para evitar sobreajuste
+
+
+frecu<-ldply(TRATA2[,listclass],function(x) t(rbind(names(table(x)),table(x))))
+names(frecu)<-c("variable","nivel","frecuencia")
+frecu$frecuencia<-as.numeric(frecu$frecuencia)
+frecu 
+
+# Hacemos dummies
+TRATAbis<-dummy.data.frame(TRATA2, listclass, sep = ".")
+
+# Quitamos position o division con menos de 20
+frecu20<-frecu[frecu$frecuencia<20,]
+
+# 2) Obtengo listado de los niveles en el mismo formato que las dummies,
+# con separador .
+
+frecu20$dum<-paste(frecu20$variable,frecu20$nivel,sep=".")
+listamal<-dput(frecu20$dum)
+
+listamal
+# Borro las dummies de basebis que coinciden con la lista
+TRATAbis[,listamal]<-NULL
+
+
+```
+```{r}
+
+TRATASINTARGET
+
+
+
+
+frecuSIN<-ldply(TRATASINTARGET[,listclass],function(x) t(rbind(names(table(x)),table(x))))
+names(frecuSIN)<-c("variable","nivel","frecuencia")
+frecuSIN$frecuencia<-as.numeric(frecuSIN$frecuencia)
+frecuSIN 
+
+# Hacemos dummies
+TRATASINTARGETBIS<-dummy.data.frame(TRATASINTARGET, listclass, sep = ".")
+
+# Quitamos position o division con menos de 20
+frecuSIN20<-frecuSIN[frecuSIN$frecuencia<20,]
+
+# 2) Obtengo listado de los niveles en el mismo formato que las dummies,
+# con separador .
+
+frecuSIN20$dum<-paste(frecuSIN20$variable,frecuSIN20$nivel,sep=".")
+listamalSIN<-dput(frecuSIN20$dum)
+
+listamalSIN
+# Borro las dummies de basebis que coinciden con la lista
+TRATASINTARGETBIS[,listamalSIN]<-NULL
+TRATASINTARGETBIS
+
+```
+
+
+
+
+
+```{r}
+
+TRATAbis
+
+TRATAbis
+
+```
+
+
+#Transformacion de nombre dummy
+```{r}
+
+
+dput(names(TRATAbis))
+
+colnames(TRATAbis)[colnames(TRATAbis) == "situacion.Emergencia"] <- "SITUACION1"
+colnames(TRATAbis)[colnames(TRATAbis) == "situacion.Urgencia"] <- "SITUACION2"
+colnames(TRATAbis)[colnames(TRATAbis) == "es_anonima.Sí"] <- "ANONIMO1"
+colnames(TRATAbis)[colnames(TRATAbis) == "es_anonima.No"] <- "ANONIMO2"
+colnames(TRATAbis)[colnames(TRATAbis) == "via_ingreso.NOLINEA145"] <- "VIA_INGRESO2"
+colnames(TRATAbis)[colnames(TRATAbis) == "via_ingreso.Línea145"] <- "VIA_INGRESO1"
+colnames(TRATAbis)[colnames(TRATAbis) == "derivacion_institucion.Servicios_de_emergencia"] <- "INST_DERIVAC1"
+colnames(TRATAbis)[colnames(TRATAbis) == "derivacion_institucion.Programas_de_ayuda_a_víctimas"] <- "INST_DERIVAC2"
+colnames(TRATAbis)[colnames(TRATAbis) == "derivacion_institucion.OrgSeguridad"] <- "INST_DERIVAC3"
+colnames(TRATAbis)[colnames(TRATAbis) == "derivacion_institucion.Protex"] <- "INST_DERIVAC4"
+colnames(TRATAbis)[colnames(TRATAbis) == "derivacion_institucion.OrgJusticia"] <- "INST_DERIVAC5"
+colnames(TRATAbis)[colnames(TRATAbis) == "derivacion_judicializa.Otros"] <- "DERIVAC_JUDIC2"
+colnames(TRATAbis)[colnames(TRATAbis) == "derivacion_judicializa.Sí"] <- "DERIVAC_JUDIC1"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_tipo.Denunciante"] <- "DENUNCIANTE1"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_tipo.DC"] <- "DENUNCIANTE2"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_tipo.DI"] <- "DENUNCIANTE3"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_tipo.DVD"] <- "DENUNCIANTE4"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_tipo.DVI"] <- "DENUNCIANTE5"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_tipo.Otros"] <- "DENUNCIANTE6"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_edad_aparente.17a29"] <- "DENUNCIANTE_EDAD1"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_edad_aparente.30a44"] <- "DENUNCIANTE_EDAD2"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_edad_aparente.45a64"] <- "DENUNCIANTE_EDAD3"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_edad_aparente.65+"] <- "DENUNCIANTE_EDAD4"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_edad_aparente.Desconoce"] <- "DENUNCIANTE_EDAD5"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Abril"] <- "MES_INGRESO4"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Agosto"] <- "MES_INGRESO8"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Diciembre"] <- "MES_INGRESO12"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Enero"] <- "MES_INGRESO1"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Febrero"] <- "MES_INGRESO2"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Julio"] <- "MES_INGRESO7"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Junio"] <- "MES_INGRESO6"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Marzo"] <- "MES_INGRESO3"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Mayo"] <- "MES_INGRESO5"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Noviembre"] <- "MES_INGRESO11"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Octubre"] <- "MES_INGRESO10"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Septiembre"] <- "MES_INGRESO9"
+
+colnames(TRATAbis)[colnames(TRATAbis) == "weekday_ingreso.domingo"] <- "WEEKDAY_INGRESO7"
+colnames(TRATAbis)[colnames(TRATAbis) == "weekday_ingreso.jueves"] <- "WEEKDAY_INGRESO4"
+colnames(TRATAbis)[colnames(TRATAbis) == "weekday_ingreso.lunes"] <- "WEEKDAY_INGRESO1"
+colnames(TRATAbis)[colnames(TRATAbis) == "weekday_ingreso.martes"] <- "WEEKDAY_INGRESO2"
+colnames(TRATAbis)[colnames(TRATAbis) == "weekday_ingreso.miércoles"] <- "WEEKDAY_INGRESO3"
+colnames(TRATAbis)[colnames(TRATAbis) == "weekday_ingreso.sábado"] <- "WEEKDAY_INGRESO6"
+colnames(TRATAbis)[colnames(TRATAbis) == "weekday_ingreso.viernes"] <- "WEEKDAY_INGRESO5"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_genero1.Hombre"] <- "DENUNCIANTE_GENERO1"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_genero1.Mujer"] <- "DENUNCIANTE_GENERO2"
+colnames(TRATAbis)[colnames(TRATAbis) == "hora_categ.Madrugada"] <- "PARTE_DIA_DERIVAC1"
+colnames(TRATAbis)[colnames(TRATAbis) == "hora_categ.Mañana"] <- "PARTE_DIA_DERIVAC2"
+
+colnames(TRATAbis)[colnames(TRATAbis) == "hora_categ.Tarde"] <- "PARTE_DIA_DERIVAC3"
+colnames(TRATAbis)[colnames(TRATAbis) == "hora_categ.Noche"] <- "PARTE_DIA_DERIVAC4"
+
+
+
+dput(names(TRATAbis))
+
+```
+
+c("dias_transcurridos", "targetbin1", "targetbinloc1", "SITUACION1", 
+"SITUACION2", "ANONIMO2", "ANONIMO1", "VIA_INGRESO2", "VIA_INGRESO1", 
+"INST_DERIVAC1", "INST_DERIVAC2", "INST_DERIVAC3", "INST_DERIVAC5", 
+"INST_DERIVAC4", "DERIVAC_JUDIC2", "DERIVAC_JUDIC1", "DENUNCIANTE1", 
+"DENUNCIANTE2", "DENUNCIANTE3", "DENUNCIANTE4", "DENUNCIANTE5", 
+"DENUNCIANTE6", "DENUNCIANTE_EDAD1", "DENUNCIANTE_EDAD2", "DENUNCIANTE_EDAD3", 
+"DENUNCIANTE_EDAD4", "DENUNCIANTE_EDAD5", "MES_INGRESO4", "MES_INGRESO8", 
+"MES_INGRESO12", "MES_INGRESO1", "MES_INGRESO2", "MES_INGRESO7", 
+"MES_INGRESO6", "MES_INGRESO3", "MES_INGRESO5", "MES_INGRESO11", 
+"MES_INGRESO10", "MES_INGRESO9", "WEEKDAY_INGRESO7", "WEEKDAY_INGRESO4", 
+"WEEKDAY_INGRESO1", "WEEKDAY_INGRESO2", "WEEKDAY_INGRESO3", "WEEKDAY_INGRESO6", 
+"WEEKDAY_INGRESO5", "DENUNCIANTE_GENERO1", "DENUNCIANTE_GENERO2", 
+"PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2", "PARTE_DIA_DERIVAC3", 
+"PARTE_DIA_DERIVAC4", "subtema1")
+
+
+
+#Archivo1
+```{r}
+
+# PARA ALGUNOS PREPARO MATRICES X, Y
+
+archivo1<-TRATAbis
+
+
+vardep<-"subtema1"
+nombres1<-c("dias_transcurridos", "targetbin1", "targetbinloc1", "SITUACION1", 
+"SITUACION2", "ANONIMO2", "ANONIMO1", "VIA_INGRESO2", "VIA_INGRESO1", 
+"INST_DERIVAC1", "INST_DERIVAC2", "INST_DERIVAC3", "INST_DERIVAC5", 
+"INST_DERIVAC4", "DERIVAC_JUDIC2", "DERIVAC_JUDIC1", "DENUNCIANTE1", 
+"DENUNCIANTE2", "DENUNCIANTE3", "DENUNCIANTE4", "DENUNCIANTE5", 
+"DENUNCIANTE6", "DENUNCIANTE_EDAD1", "DENUNCIANTE_EDAD2", "DENUNCIANTE_EDAD3", 
+"DENUNCIANTE_EDAD4", "DENUNCIANTE_EDAD5", "MES_INGRESO4", "MES_INGRESO8", 
+"MES_INGRESO12", "MES_INGRESO1", "MES_INGRESO2", "MES_INGRESO7", 
+"MES_INGRESO6", "MES_INGRESO3", "MES_INGRESO5", "MES_INGRESO11", 
+"MES_INGRESO10", "MES_INGRESO9", "WEEKDAY_INGRESO7", "WEEKDAY_INGRESO4", 
+"WEEKDAY_INGRESO1", "WEEKDAY_INGRESO2", "WEEKDAY_INGRESO3", "WEEKDAY_INGRESO6", 
+"WEEKDAY_INGRESO5", "DENUNCIANTE_GENERO1", "DENUNCIANTE_GENERO2", 
+"PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2", "PARTE_DIA_DERIVAC3", 
+"PARTE_DIA_DERIVAC4")
+
+y<-archivo1[,vardep]
+x<-archivo1[,nombres1]
+
+TRATAbis$subtema1<-ifelse(TRATAbis$subtema1==1,"Yes","No")
+
+
+archivo1<-TRATAbis
+
+table(archivo1$subtema1)
+#  No  Yes 
+# 2359 2260 
+prop.table(table(archivo1$subtema1))
+#       No       Yes 
+# 0.5107166 0.4892834 
+
+barplot(table(archivo1$subtema1), main = "Gráfico de barras de una variable binaria",
+        xlab = "Categoría", ylab = "Frecuencia")
+text(x = barplot(table(archivo1$subtema1)), y = table(archivo1$subtema1), labels = frecuencia, pos = 3)
+
+
+ggplot(archivo1, aes(x = subtema1, fill = subtema1)) +
+  geom_bar(color = "white", alpha = 0.3) +
+  scale_fill_brewer(palette = "Dark2") +
+  labs(title = "Diagrama de barras ",
+       subtitle = "Conteo de la clase",
+       x = "subtema", y = "Frecuencia") +
+  theme_minimal()
+
+ggplot(archivo1, aes(x = subtema1, fill = subtema1)) +
+  geom_bar(color = "white", alpha = 0.3) +
+  scale_fill_brewer(palette = "Dark2") +
+  labs(title = "Diagrama de barras",
+       subtitle = "Conteo de la clase",
+       x = "Denuncia Explotación Sexual", y = "Frecuencia") +
+  theme_minimal() +
+  geom_text(stat = "count", aes(label = ..count..), vjust = -0.5)
+
+
+```
+
+```{r}
+
+
+control<-trainControl(method = "cv",number=4,
+                      classProbs=TRUE,savePredictions = "all") #p es train 80%
+
+logitodo<- train(subtema1~.,data=archivo1,
+             method="glm",trControl=control) #glm, modelo lineal general
+
+summary(logitodo)
+logitodo #accuracy 70% de aciertos
+sal<-logitodo$pred
+sal
+
+aucglm<-roc(sal$obs,sal$Yes,levels=c("Yes","No"))
+
+aucglm
+
+
+confusionMatrix(reference=sal$obs,data=sal$pred, positive="Yes")
+
+
+# corte<-0.3 
+# 
+# 
+# sal$predcorte<-ifelse(sal$Yes>corte,"Yes","No")
+# sal$predcorte<-as.factor(sal$predcorte)
+# 
+# confusionMatrix(reference=sal$obs,data=sal$predcorte, positive="Yes")
+
+
+
+```
+
+
+```{r}
+
+# ESTIMACIÓN FINAL APROXIMADA DEL ERROR USANDO 10 GRUPOS DE CV
+
+set.seed(1234)
+control<-trainControl(method = "cv",number=10,savePredictions = "all",classProbs=TRUE) 
+
+logi<- train(factor(subtema1)~.,data=archivo1,method="glm",trControl=control)
+
+logi
+sal<-logi$pred
+
+roc(sal$obs,sal$Yes)
+
+
+
+# EFECTO DE LAS VARIABLES INCLUIDAS EN EL MODELO
+
+# Se aplica el modelo con methdo="none" en caret para observar la tabla de la logística
+
+controlnone<-trainControl(method = "none",savePredictions = "all",classProbs=TRUE) 
+
+loginone<- train(factor(subtema1)~.,data=archivo1,method="glm",trControl=controlnone)
+
+summary(loginone)
+##Media 3 STEPAIC1
+
+mediaslog<-cruzadalogistica(data=archivo1,
+                          vardep="subtema1",listconti=
+                            c("dias_transcurridos", "targetbin1", "targetbinloc1", "SITUACION1", 
+"SITUACION2", "ANONIMO2", "ANONIMO1", "VIA_INGRESO2", "VIA_INGRESO1", 
+"INST_DERIVAC1", "INST_DERIVAC2", "INST_DERIVAC3", "INST_DERIVAC5", 
+"INST_DERIVAC4", "DERIVAC_JUDIC2", "DERIVAC_JUDIC1", "DENUNCIANTE1", 
+"DENUNCIANTE2", "DENUNCIANTE3", "DENUNCIANTE4", "DENUNCIANTE5", 
+"DENUNCIANTE6", "DENUNCIANTE_EDAD1", "DENUNCIANTE_EDAD2", "DENUNCIANTE_EDAD3", 
+"DENUNCIANTE_EDAD4", "DENUNCIANTE_EDAD5", "MES_INGRESO4", "MES_INGRESO8", 
+"MES_INGRESO12", "MES_INGRESO1", "MES_INGRESO2", "MES_INGRESO7", 
+"MES_INGRESO6", "MES_INGRESO3", "MES_INGRESO5", "MES_INGRESO11", 
+"MES_INGRESO10", "MES_INGRESO9", "WEEKDAY_INGRESO7", "WEEKDAY_INGRESO4", 
+"WEEKDAY_INGRESO1", "WEEKDAY_INGRESO2", "WEEKDAY_INGRESO3", "WEEKDAY_INGRESO6", 
+"WEEKDAY_INGRESO5", "DENUNCIANTE_GENERO1", "DENUNCIANTE_GENERO2", 
+"PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2", "PARTE_DIA_DERIVAC3", 
+"PARTE_DIA_DERIVAC4"),
+                          listclass=c(""),grupos=4,sinicio=1234,repe=50)
+
+mediaslog$modelo="REGL.todasVar"
+
+```
+
+
+
+#SIN TARGET
+```{r}
+dput(names(TRATASINTARGETBIS))
+TRATASINTARGETBIS$subtema1<-as.character(TRATASINTARGETBIS$subtema1)
+
+
+mediasSINlog<-cruzadalogistica(data=TRATASINTARGETBIS,
+                          vardep="subtema1",listconti=
+                            c("dias_transcurridos", "situacion.Emergencia", "situacion.Urgencia", 
+"es_anonima.No", "es_anonima.Sí", "provincia.Buenos_Aires", 
+"provincia.Catamarca", "provincia.Chaco", "provincia.Chubut", 
+"provincia.Ciudad_Autónoma_de_Buenos_Aires", "provincia.Córdoba", 
+"provincia.Corrientes", "provincia.Entre_Ríos", "provincia.Formosa", 
+"provincia.Jujuy", "provincia.La_Rioja", "provincia.Mendoza", 
+"provincia.Misiones", "provincia.Neuquén", "provincia.Otros", 
+"provincia.Río_Negro", "provincia.Salta", "provincia.San_Juan", 
+"provincia.San_Luis", "provincia.Santa_Cruz", "provincia.Santa_Fe", 
+"provincia.Santiago_del_Estero", "provincia.Tierra_del_Fuego", 
+"provincia.Tucumán", "via_ingreso.NOLINEA145", "via_ingreso.Línea145", 
+"derivacion_institucion.Servicios_de_emergencia", "derivacion_institucion.Programas_de_ayuda_a_víctimas", 
+"derivacion_institucion.OrgSeguridad", "derivacion_institucion.OrgJusticia", 
+"derivacion_institucion.Protex", "derivacion_judicializa.Otros", 
+"derivacion_judicializa.Sí", "denunciante_tipo.Denunciante", 
+"denunciante_tipo.DC", "denunciante_tipo.DI", "denunciante_tipo.DVD", 
+"denunciante_tipo.DVI", "denunciante_tipo.Otros", "denunciante_edad_aparente.17a29", 
+"denunciante_edad_aparente.30a44", "denunciante_edad_aparente.45a64", "denunciante_edad_aparente.Desconoce", 
+"MESES.Abril", "MESES.Agosto", "MESES.Diciembre", "MESES.Enero", 
+"MESES.Febrero", "MESES.Julio", "MESES.Junio", "MESES.Marzo", 
+"MESES.Mayo", "MESES.Noviembre", "MESES.Octubre", "MESES.Septiembre", 
+"weekday_ingreso.domingo", "weekday_ingreso.jueves", "weekday_ingreso.lunes", 
+"weekday_ingreso.martes", "weekday_ingreso.miércoles", "weekday_ingreso.sábado", 
+"weekday_ingreso.viernes", "denunciante_genero1.Hombre", "denunciante_genero1.Mujer", 
+"hora_categ.Madrugada", "hora_categ.Mañana", "hora_categ.Tarde", 
+"hora_categ.Noche"),listclass=c(""),grupos=4,sinicio=1234,repe=50)
+
+mediasSINlog$modelo="logistica.SinTargetEncoder"
+
+```
+
+
+
+```{r}
+
+# Gráfico de importancia random forest
+library(randomForest)
+rfgrid<-expand.grid(mtry=c(3))
+
+controlrfrf<-trainControl(method = "cv",number=4,savePredictions = "all",
+                      classProbs=TRUE) 
+
+rfrf<- train(factor(subtema1)~.,data=archivo1,
+           method="rf",trControl=controlrfrf,tuneGrid=rfgrid,
+           linout = FALSE,replace=TRUE,
+           importance=TRUE)
+
+final<-rfrf$finalModel
+rfrf$finalModel$importance
+tabla<-as.data.frame(rfrf$finalModel$importance)
+tabla<-tabla[order(-tabla$MeanDecreaseAccuracy),]
+tabla
+
+barplot(tabla$MeanDecreaseAccuracy,names.arg=rownames(tabla))
+summary(final)
+
+aucrfrf<-roc(salrf$obs,salrf$Yes,levels=c("Yes","No"))
+
+aucrfrf
+
+salrf<-rfrf$pred
+salrf
+
+confusionMatrix(reference=salrf$obs,data=salrf$pred, positive="Yes")
+
+
+
+  # Arbol simple
+  library(rpart)
+  library(rpart.plot)
+  
+  arbol1 <- rpart(factor(subtema1) ~ ., data = archivo1,
+                  minbucket =10,method = "class",parms=list(split="gini"),cp=0)
+  
+  summary(arbol1)
+  rpart.plot(arbol1,extra=105,nn=TRUE,tweak =1) #tweak es tamaño de arbol 
+
+```
+
+
+
+
+```{r}
+
+library(rpart)
+library(rpart.plot)
+library(visualpred)
+library(ggplot2)
+
+
+vardep="subtema1"
+variablesglm<-c("dias_transcurridos", "targetbin1", "targetbinloc1", "SITUACION1", 
+"SITUACION2", "ANONIMO2", "ANONIMO1", "VIA_INGRESO2", "VIA_INGRESO1", 
+"INST_DERIVAC1", "INST_DERIVAC2", "INST_DERIVAC3", "derivacion_institucion.OrgJusticia", 
+"INST_DERIVAC4", "DERIVAC_JUDIC2", "DERIVAC_JUDIC1", "DENUNCIANTE1", 
+"DENUNCIANTE2", "DENUNCIANTE3", "DENUNCIANTE4", "DENUNCIANTE5", 
+"DENUNCIANTE6", "DENUNCIANTE_EDAD1", "DENUNCIANTE_EDAD2", "DENUNCIANTE_EDAD3", 
+"DENUNCIANTE_EDAD4", "DENUNCIANTE_EDAD5", "MES_INGRESO4", "MES_INGRESO8", 
+"MES_INGRESO12", "MES_INGRESO1", "MES_INGRESO2", "MES_INGRESO7", 
+"MES_INGRESO6", "MES_INGRESO3", "MES_INGRESO5", "MES_INGRESO11", 
+"MES_INGRESO10", "MES_INGRESO9", "WEEKDAY_INGRESO7", "WEEKDAY_INGRESO4", 
+"WEEKDAY_INGRESO1", "WEEKDAY_INGRESO2", "WEEKDAY_INGRESO3", "WEEKDAY_INGRESO6", 
+"WEEKDAY_INGRESO5", "DENUNCIANTE_GENERO1", "DENUNCIANTE_GENERO2", 
+"PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2", "PARTE_DIA_DERIVAC3", 
+"PARTE_DIA_DERIVAC4")
+#hay que quitar las comilla simple 
+
+
+# USO DE VISUALPRED 
+
+
+
+listcontiglm<-c("dias_transcurridos", "targetbin1", "targetbinloc1", "SITUACION1", 
+"SITUACION2", "ANONIMO2", "ANONIMO1", "VIA_INGRESO2", "VIA_INGRESO1", 
+"INST_DERIVAC1", "INST_DERIVAC2", "INST_DERIVAC3", "derivacion_institucion.OrgJusticia", 
+"INST_DERIVAC4", "DERIVAC_JUDIC2", "DERIVAC_JUDIC1", "DENUNCIANTE1", 
+"DENUNCIANTE2", "DENUNCIANTE3", "DENUNCIANTE4", "DENUNCIANTE5", 
+"DENUNCIANTE6", "DENUNCIANTE_EDAD1", "DENUNCIANTE_EDAD2", "DENUNCIANTE_EDAD3", 
+"DENUNCIANTE_EDAD4", "DENUNCIANTE_EDAD5", "MES_INGRESO4", "MES_INGRESO8", 
+"MES_INGRESO12", "MES_INGRESO1", "MES_INGRESO2", "MES_INGRESO7", 
+"MES_INGRESO6", "MES_INGRESO3", "MES_INGRESO5", "MES_INGRESO11", 
+"MES_INGRESO10", "MES_INGRESO9", "WEEKDAY_INGRESO7", "WEEKDAY_INGRESO4", 
+"WEEKDAY_INGRESO1", "WEEKDAY_INGRESO2", "WEEKDAY_INGRESO3", "WEEKDAY_INGRESO6", 
+"WEEKDAY_INGRESO5", "DENUNCIANTE_GENERO1", "DENUNCIANTE_GENERO2", 
+"PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2", "PARTE_DIA_DERIVAC3", 
+"PARTE_DIA_DERIVAC4")
+listclass<-c()
+dataglm<-data[,c(listcontiglm,listclass,vardep)]
+
+
+resultglm<-famdcontour(dataf=dataglm,listconti=listcontiglm,listclass=listclass,vardep=vardep,
+                    title="GLM",title2=" ",selec=0,modelo="glm",classvar=0)
+
+
+resultglm[[1]]
+resultglm[[2]]
+resultglm[[3]]
+resultglm[[4]]
+resultglm[[5]]
+resultglm[[6]]
+
+table(dataglm$subtema1)
+
+
+resultglm
+glmlmlm<-resultglm[[2]]+theme(legend.position = "none")+xlab("")+ylab("")
+
+glmlmlm
+
+
+```
+
+
+
+
+
+```{r}
+
+
+listavar<-c("dias_transcurridos", "targetbin1", "targetbinloc1")
+
+for (i in listavar) {
+  print(ggplot(TRATA2,aes_string(x=i))+geom_histogram()+facet_grid(~factor(subtema1)))
+}
+
+for (i in listavar) {
+  print(ggplot(TRATA2,aes_string(x=i,y="subtema1"))+geom_point())
+}
+
+
+
+# CATEGORICAS/DUMMIES
+#grafico para variables categoricas
+
+listavarcate <- c("es_anonima", "via_ingreso", "derivacion_institucion", 
+              "derivacion_judicializa", "denunciante_tipo", 
+              "denunciante_edad_aparente", "MESES", "weekday_ingreso", 
+              "denunciante_genero1", "hora_categ")
+
+
+for (var in listavarcate) {
+  tabla <- table(TRATA2[, var])
+  barplot(tabla, main=var)
+}
+```
+```{r}
+
+tabla1 <- table(saheartbis$chd,saheartbis$famhist.Absent )
+barplot(tabla1, legend=T,beside=T)
+
+
+
+```
+
+
+

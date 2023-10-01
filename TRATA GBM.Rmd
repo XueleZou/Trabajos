@@ -1,0 +1,1269 @@
+---
+title: "TRATA"
+author: "Xuele"
+date: "2023-03-26"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#Datos
+```{r}
+setwd("C:/Users/Xuele/Documents/MACHINE LEARNING/TEMA 6")
+#setwd("C:/Users/Xuele/Documents/WeChat Files/wxid_rk9499725zdh11/FileStorage/File/2023-03/TEMA6")
+library(parallel)
+library(doParallel)
+library(plyr)
+library(caret)
+library(dummies)
+library(ggplot2)
+library(randomForest)
+library(naniar)
+library(MASS)
+library(caret)
+library(MXM)
+library(dplyr)
+library(pROC)
+GS_T0 <- Sys.time()
+cluster <- makeCluster(detectCores() - 1) # number of cores, convention to leave 1 core for OS
+registerDoParallel(cluster) # register the parallel processing
+
+
+source("funcion steprepetido binaria.R")
+source("cruzadas avnnet y log binaria.R")
+
+
+load("TRATACodificada.rda")
+
+dput(names(TRATA))
+
+```
+c("situacion", "es_anonima", "provincia", "via_ingreso", "derivacion_institucion", 
+"derivacion_judicializa", "denunciante_tipo", "denunciante_edad_aparente", 
+"subtema1", "MESES", "weekday_ingreso", "localidad1", "denunciante_genero1", 
+"dias_transcurridos", "hora_categ")
+
+
+#Combinacion de datos 
+```{r}
+
+listconti<-c("dias_transcurridos")
+listclass<-c("situacion", "es_anonima", "provincia", "via_ingreso", "derivacion_institucion", 
+"derivacion_judicializa", "denunciante_tipo", "denunciante_edad_aparente", 
+ "MESES", "weekday_ingreso", "denunciante_genero1", "hora_categ","nro_registro_interno")
+vardep<-c("subtema1")
+TRATA<-TRATA[,c(listconti,listclass,vardep)]
+
+```
+
+#Transformacion de datos 
+```{r}
+# Borro observaciones con algún missing 
+
+
+TRATA2<-na.omit(TRATA)
+
+# Copio  y pego de otros ejemplos estandarización continuas
+
+means <-apply(TRATA2[,listconti],2,mean,na.rm=TRUE)
+sds<-sapply(TRATA2[,listconti],sd,na.rm=TRUE)
+
+TRATA2.2<-scale(TRATA2[,listconti], center = means, scale = sds)
+
+TRATA2<-data.frame(cbind(TRATA2.2,TRATA2[,c(listclass,vardep)]))
+TRATA2
+
+load("TRATA_LOC_encoder.RDA")
+load("TRATA_PROV_encoder.RDA")
+
+
+UNIR <- merge(merge(PROV, LOC, all = TRUE), TRATA2, all = TRUE)
+
+
+
+subset(UNIR, nro_registro_interno == 505051525)
+
+dput(names(UNIR))
+
+c("nro_registro_interno", "provincia", "subtema1", "targetbin1", 
+"targetbinloc1", "localidad1", "dias_transcurridos", "situacion", 
+"es_anonima", "via_ingreso", "derivacion_institucion", "derivacion_judicializa", 
+"denunciante_tipo", "denunciante_edad_aparente", "MESES", "weekday_ingreso", 
+"denunciante_genero1", "hora_categ")
+
+
+listconti<-c("dias_transcurridos","targetbin1","targetbinloc1")
+listclass<-c("situacion", "es_anonima",  "via_ingreso", "derivacion_institucion", 
+"derivacion_judicializa", "denunciante_tipo", "denunciante_edad_aparente", 
+ "MESES", "weekday_ingreso", "denunciante_genero1", "hora_categ")
+vardep<-c("subtema1")
+
+TRATA2<-UNIR[,c(listconti,listclass,vardep)]
+
+
+```
+
+
+
+```{r}
+
+# Lista de Frecuencias de las categóricas, útil pues algunos niveles
+# con pocas observaciones no deben ser tenidos en cuenta 
+# en modelos de machine learning para evitar sobreajuste
+
+
+frecu<-ldply(TRATA2[,listclass],function(x) t(rbind(names(table(x)),table(x))))
+names(frecu)<-c("variable","nivel","frecuencia")
+frecu$frecuencia<-as.numeric(frecu$frecuencia)
+frecu 
+
+# Hacemos dummies
+TRATAbis<-dummy.data.frame(TRATA2, listclass, sep = ".")
+
+# Quitamos position o division con menos de 20
+frecu20<-frecu[frecu$frecuencia<20,]
+
+# 2) Obtengo listado de los niveles en el mismo formato que las dummies,
+# con separador .
+
+frecu20$dum<-paste(frecu20$variable,frecu20$nivel,sep=".")
+listamal<-dput(frecu20$dum)
+
+listamal
+# Borro las dummies de basebis que coinciden con la lista
+TRATAbis[,listamal]<-NULL
+
+
+```
+
+
+```{r}
+
+TRATAbis
+
+TRATAbis
+
+```
+
+
+#Transformacion de nombre dummy
+```{r}
+
+
+dput(names(TRATAbis))
+
+colnames(TRATAbis)[colnames(TRATAbis) == "situacion.Emergencia"] <- "SITUACION1"
+colnames(TRATAbis)[colnames(TRATAbis) == "situacion.Urgencia"] <- "SITUACION2"
+colnames(TRATAbis)[colnames(TRATAbis) == "es_anonima.Sí"] <- "ANONIMO1"
+colnames(TRATAbis)[colnames(TRATAbis) == "es_anonima.No"] <- "ANONIMO2"
+colnames(TRATAbis)[colnames(TRATAbis) == "via_ingreso.NOLINEA145"] <- "VIA_INGRESO2"
+colnames(TRATAbis)[colnames(TRATAbis) == "via_ingreso.Línea145"] <- "VIA_INGRESO1"
+colnames(TRATAbis)[colnames(TRATAbis) == "derivacion_institucion.Servicios_de_emergencia"] <- "INST_DERIVAC1"
+colnames(TRATAbis)[colnames(TRATAbis) == "derivacion_institucion.Programas_de_ayuda_a_víctimas"] <- "INST_DERIVAC2"
+colnames(TRATAbis)[colnames(TRATAbis) == "derivacion_institucion.OrgSeguridad"] <- "INST_DERIVAC3"
+colnames(TRATAbis)[colnames(TRATAbis) == "derivacion_institucion.Protex"] <- "INST_DERIVAC4"
+colnames(TRATAbis)[colnames(TRATAbis) == "derivacion_judicializa.Otros"] <- "DERIVAC_JUDIC2"
+colnames(TRATAbis)[colnames(TRATAbis) == "derivacion_judicializa.Sí"] <- "DERIVAC_JUDIC1"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_tipo.Denunciante"] <- "DENUNCIANTE1"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_tipo.DC"] <- "DENUNCIANTE2"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_tipo.DI"] <- "DENUNCIANTE3"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_tipo.DVD"] <- "DENUNCIANTE4"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_tipo.DVI"] <- "DENUNCIANTE5"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_tipo.Otros"] <- "DENUNCIANTE6"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_edad_aparente.17a29"] <- "DENUNCIANTE_EDAD1"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_edad_aparente.30a44"] <- "DENUNCIANTE_EDAD2"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_edad_aparente.45a64"] <- "DENUNCIANTE_EDAD3"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_edad_aparente.65+"] <- "DENUNCIANTE_EDAD4"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_edad_aparente.Desconoce"] <- "DENUNCIANTE_EDAD5"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Abril"] <- "MES_INGRESO4"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Agosto"] <- "MES_INGRESO8"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Diciembre"] <- "MES_INGRESO12"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Enero"] <- "MES_INGRESO1"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Febrero"] <- "MES_INGRESO2"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Julio"] <- "MES_INGRESO7"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Junio"] <- "MES_INGRESO6"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Marzo"] <- "MES_INGRESO3"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Mayo"] <- "MES_INGRESO5"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Noviembre"] <- "MES_INGRESO11"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Octubre"] <- "MES_INGRESO10"
+colnames(TRATAbis)[colnames(TRATAbis) == "MESES.Septiembre"] <- "MES_INGRESO9"
+
+colnames(TRATAbis)[colnames(TRATAbis) == "weekday_ingreso.domingo"] <- "WEEKDAY_INGRESO7"
+colnames(TRATAbis)[colnames(TRATAbis) == "weekday_ingreso.jueves"] <- "WEEKDAY_INGRESO4"
+colnames(TRATAbis)[colnames(TRATAbis) == "weekday_ingreso.lunes"] <- "WEEKDAY_INGRESO1"
+colnames(TRATAbis)[colnames(TRATAbis) == "weekday_ingreso.martes"] <- "WEEKDAY_INGRESO2"
+colnames(TRATAbis)[colnames(TRATAbis) == "weekday_ingreso.miércoles"] <- "WEEKDAY_INGRESO3"
+colnames(TRATAbis)[colnames(TRATAbis) == "weekday_ingreso.sábado"] <- "WEEKDAY_INGRESO6"
+colnames(TRATAbis)[colnames(TRATAbis) == "weekday_ingreso.viernes"] <- "WEEKDAY_INGRESO5"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_genero1.Hombre"] <- "DENUNCIANTE_GENERO1"
+colnames(TRATAbis)[colnames(TRATAbis) == "denunciante_genero1.Mujer"] <- "DENUNCIANTE_GENERO2"
+colnames(TRATAbis)[colnames(TRATAbis) == "hora_categ.Madrugada"] <- "PARTE_DIA_DERIVAC1"
+colnames(TRATAbis)[colnames(TRATAbis) == "hora_categ.Mañana"] <- "PARTE_DIA_DERIVAC2"
+
+colnames(TRATAbis)[colnames(TRATAbis) == "hora_categ.Tarde"] <- "PARTE_DIA_DERIVAC3"
+colnames(TRATAbis)[colnames(TRATAbis) == "hora_categ.Noche"] <- "PARTE_DIA_DERIVAC4"
+
+
+
+dput(names(TRATAbis))
+
+```
+
+c("dias_transcurridos", "targetbin1", "targetbinloc1", "SITUACION1", 
+"SITUACION2", "ANONIMO2", "ANONIMO1", "VIA_INGRESO2", "VIA_INGRESO1", 
+"INST_DERIVAC1", "INST_DERIVAC2", "INST_DERIVAC3", "derivacion_institucion.OrgJusticia", 
+"INST_DERIVAC4", "DERIVAC_JUDIC2", "DERIVAC_JUDIC1", "DENUNCIANTE1", 
+"DENUNCIANTE2", "DENUNCIANTE3", "DENUNCIANTE4", "DENUNCIANTE5", 
+"DENUNCIANTE6", "DENUNCIANTE_EDAD1", "DENUNCIANTE_EDAD2", "DENUNCIANTE_EDAD3", 
+"DENUNCIANTE_EDAD4", "DENUNCIANTE_EDAD5", "MES_INGRESO4", "MES_INGRESO8", 
+"MES_INGRESO12", "MES_INGRESO1", "MES_INGRESO2", "MES_INGRESO7", 
+"MES_INGRESO6", "MES_INGRESO3", "MES_INGRESO5", "MES_INGRESO11", 
+"MES_INGRESO10", "MES_INGRESO9", "WEEKDAY_INGRESO7", "WEEKDAY_INGRESO4", 
+"WEEKDAY_INGRESO1", "WEEKDAY_INGRESO2", "WEEKDAY_INGRESO3", "WEEKDAY_INGRESO6", 
+"WEEKDAY_INGRESO5", "DENUNCIANTE_GENERO1", "DENUNCIANTE_GENERO2", 
+"PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2", "PARTE_DIA_DERIVAC3", 
+"PARTE_DIA_DERIVAC4", "subtema1")
+
+
+
+#Archivo1
+```{r}
+
+# PARA ALGUNOS PREPARO MATRICES X, Y
+
+archivo1<-TRATAbis
+
+
+vardep<-"subtema1"
+nombres1<-c("dias_transcurridos", "targetbin1", "targetbinloc1", "SITUACION1", 
+"SITUACION2", "ANONIMO2", "ANONIMO1", "VIA_INGRESO2", "VIA_INGRESO1", 
+"INST_DERIVAC1", "INST_DERIVAC2", "INST_DERIVAC3", "derivacion_institucion.OrgJusticia", 
+"INST_DERIVAC4", "DERIVAC_JUDIC2", "DERIVAC_JUDIC1", "DENUNCIANTE1", 
+"DENUNCIANTE2", "DENUNCIANTE3", "DENUNCIANTE4", "DENUNCIANTE5", 
+"DENUNCIANTE6", "DENUNCIANTE_EDAD1", "DENUNCIANTE_EDAD2", "DENUNCIANTE_EDAD3", 
+"DENUNCIANTE_EDAD4", "DENUNCIANTE_EDAD5", "MES_INGRESO4", "MES_INGRESO8", 
+"MES_INGRESO12", "MES_INGRESO1", "MES_INGRESO2", "MES_INGRESO7", 
+"MES_INGRESO6", "MES_INGRESO3", "MES_INGRESO5", "MES_INGRESO11", 
+"MES_INGRESO10", "MES_INGRESO9", "WEEKDAY_INGRESO7", "WEEKDAY_INGRESO4", 
+"WEEKDAY_INGRESO1", "WEEKDAY_INGRESO2", "WEEKDAY_INGRESO3", "WEEKDAY_INGRESO6", 
+"WEEKDAY_INGRESO5", "DENUNCIANTE_GENERO1", "DENUNCIANTE_GENERO2", 
+"PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2", "PARTE_DIA_DERIVAC3", 
+"PARTE_DIA_DERIVAC4")
+
+y<-archivo1[,vardep]
+x<-archivo1[,nombres1]
+
+save(archivo1, file = "TRATACodificada_dummy_subtema.RDA")
+
+```
+
+
+#AS.FACTOR
+```{r}
+archivo1$subtema1<-as.factor(archivo1$subtema1)
+```
+
+
+#YES/NO
+```{r}
+# SIEMPRE VAMOS A PONER Yes,No, LA VARIABLE DEPENDIENTE EN LAS FUNCIONES a partir de ahora
+
+TRATAbis$subtema1<-ifelse(TRATAbis$subtema1==1,"Yes","No")
+
+
+archivo1<-TRATAbis
+
+
+library(caret)
+library(pROC)
+
+table(archivo1$subtema1)
+
+#  No  Yes 
+# 2359 2260 
+prop.table(table(archivo1$subtema1))
+
+#   No       Yes 
+# 0.5107166 0.4892834
+
+```
+#Data2 STEPAIC
+```{r}
+
+vardep="subtema1"
+variables<-c("ANONIMO2", "targetbinloc1", "DENUNCIANTE2", "targetbin1", 
+"DENUNCIANTE6", "MES_INGRESO3", "PARTE_DIA_DERIVAC1", "MES_INGRESO2", 
+"MES_INGRESO11", "INST_DERIVAC1", "MES_INGRESO10", "PARTE_DIA_DERIVAC2", 
+"MES_INGRESO9", "INST_DERIVAC2", "DENUNCIANTE1", "WEEKDAY_INGRESO4", 
+"DENUNCIANTE_EDAD5")
+#hay que quitar las comilla simple 
+
+data2<-data[,c(variables,vardep)]
+
+
+
+```
+
+
+#Gradient Boosting STEPAIC
+```{r}
+library(caret)
+
+set.seed(1234)
+
+gbmgrid<-expand.grid(shrinkage=c(0.05),
+ n.minobsinnode=c(5),
+ n.trees=c(1000),
+ interaction.depth=c(2))
+
+
+controlgmb<-trainControl(method = "cv",number=4,savePredictions = "all",
+ classProbs=TRUE) 
+
+gbmstep<- train(factor(subtema1)~ANONIMO2+ targetbinloc1+ DENUNCIANTE2+ targetbin1+ 
+DENUNCIANTE6+ MES_INGRESO3+ PARTE_DIA_DERIVAC1+ MES_INGRESO2+ 
+MES_INGRESO11+ INST_DERIVAC1+ MES_INGRESO10+ PARTE_DIA_DERIVAC2+ 
+MES_INGRESO9+ INST_DERIVAC2+ DENUNCIANTE1+ WEEKDAY_INGRESO4+ 
+DENUNCIANTE_EDAD5,
+data=data2,
+ method="gbm",trControl=controlgmb,tuneGrid=gbmgrid,
+ distribution="bernoulli", bag.fraction=1,verbose=FALSE)#bag fraction no se puede turnear
+
+gbmstep
+ 
+
+
+```
+
+
+
+#Data3 MXM
+
+seleccion de variable MXM 10 variables 
+```{r}
+
+vardep="subtema1"
+variables3<-c("targetbin1", "targetbinloc1", "ANONIMO1", "INST_DERIVAC1", 
+"DENUNCIANTE2", "DENUNCIANTE3", "MES_INGRESO2", "MES_INGRESO3", 
+"PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2")
+#hay que quitar las comilla simple 
+
+data3<-data[,c(variables3,vardep)]
+
+```
+
+
+
+#Gradient Boosting MXM
+```{r}
+library(caret)
+
+set.seed(1234)
+
+
+gbmgridmxm<-expand.grid(shrinkage=c(0.03),
+ n.minobsinnode=c(5),
+ n.trees=c(1500),
+ interaction.depth=c(2))
+
+controlgmbmxm<-trainControl(method = "cv",number=4,savePredictions = "all",
+ classProbs=TRUE) 
+
+gbmmxmfinal<- train(factor(subtema1)~targetbin1+ targetbinloc1+ ANONIMO1+ INST_DERIVAC1+ 
+DENUNCIANTE2+ DENUNCIANTE3+ MES_INGRESO2+ MES_INGRESO3+ 
+PARTE_DIA_DERIVAC1+ PARTE_DIA_DERIVAC2,
+data=data3,
+ method="gbm",trControl=controlgmbmxm,tuneGrid=gbmgridmxm,
+ distribution="bernoulli", bag.fraction=1,verbose=FALSE)#bag fraction no se puede turnear
+
+
+
+
+
+gbmmxmfinal
+ 
+ # Accuracy  Kappa    
+ #  0.719422  0.4388414
+
+
+
+preditestmxm<-gbmmxmfinal$pred
+
+preditestmxm
+
+aucmxm<-roc(preditestmxm$obs,preditestmxm$Yes,levels=c("Yes","No"))
+
+aucmxm
+
+
+
+# Area under the curve: 0.801
+
+
+# Area under the curve: 0.7982
+gbmmxmfinal
+salmxm<-gbmmxmfinal$pred
+salmxm
+
+confusionMatrix(reference=salmxm$obs,data=salmxm$pred, positive="Yes")
+
+
+# Stochastic Gradient Boosting 
+# 
+# 4619 samples
+#   10 predictor
+#    2 classes: 'No', 'Yes' 
+# 
+# No pre-processing
+# Resampling: Cross-Validated (4 fold) 
+# Summary of sample sizes: 3464, 3464, 3464, 3465 
+# Resampling results:
+# 
+#   Accuracy  Kappa    
+#   0.719422  0.4388414
+# 
+# Tuning parameter 'n.trees' was held constant at a value of 1000
+# Tuning
+#  'shrinkage' was held constant at a value of 0.05
+# Tuning parameter 'n.minobsinnode' was
+#  held constant at a value of 5
+# Confusion Matrix and Statistics
+# 
+#           Reference
+# Prediction   No  Yes
+#        No  1688  625
+#        Yes  671 1635
+#                                           
+#                Accuracy : 0.7194          
+#                  95% CI : (0.7062, 0.7323)
+#     No Information Rate : 0.5107          
+#     P-Value [Acc > NIR] : <2e-16          
+#                                           
+#                   Kappa : 0.4388          
+#                                           
+#  Mcnemar's Test P-Value : 0.2113          
+#                                           
+#             Sensitivity : 0.7235          
+#             Specificity : 0.7156          
+#          Pos Pred Value : 0.7090          
+#          Neg Pred Value : 0.7298          
+#              Prevalence : 0.4893          
+#          Detection Rate : 0.3540          
+#    Detection Prevalence : 0.4992          
+#       Balanced Accuracy : 0.7195          
+#                                           
+#        'Positive' Class : Yes   
+
+aucmxm2 <- roc(preditestmxm$obs, preditestmxm$Yes, levels = c("Yes", "No"))
+coords(aucmxm, "best", ret = "threshold", best.method = "closest.topleft")
+
+corte2<-0.46
+
+
+salmxm$predcorte<-ifelse(salmxm$Yes>corte2,"Yes","No")
+salmxm$predcorte<-as.factor(salmxm$predcorte)
+
+confusionMatrix(reference=salmxm$obs,data=salmxm$predcorte, positive="Yes")
+
+
+```
+
+#test gbm 
+```{r}
+load("TTESTCodificada_dummy_subtema_TEST.RDA")
+
+vardep="subtema1"
+variables3<-c("targetbin1", "targetbinloc1", "ANONIMO1", "INST_DERIVAC1", 
+              "DENUNCIANTE2", "DENUNCIANTE3", "MES_INGRESO2", "MES_INGRESO3", 
+              "PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2")
+
+
+TRATATEST_test<-TRATATEST[,c(variables3,vardep)]
+TRATATEST_test$subtema1<-ifelse(TRATATEST_test$subtema1==1,"Yes","No")
+TRATATEST_test
+# TRATATEST_test$subtema1<-as.character(TRATATEST_test$subtema1)
+
+
+gbmgridmxm<-expand.grid(shrinkage=c(0.03),
+ n.minobsinnode=c(5),
+ n.trees=c(1500),
+ interaction.depth=c(2))
+
+controlgmbmxm<-trainControl(method = "cv",number=4,savePredictions = "all",
+ classProbs=TRUE) 
+
+gbmmxmfinaltest<- train(factor(subtema1)~targetbin1+ targetbinloc1+ ANONIMO1+ INST_DERIVAC1+ 
+DENUNCIANTE2+ DENUNCIANTE3+ MES_INGRESO2+ MES_INGRESO3+ 
+PARTE_DIA_DERIVAC1+ PARTE_DIA_DERIVAC2,
+data=TRATATEST_test,
+ method="gbm",trControl=controlgmbmxm,tuneGrid=gbmgridmxm,
+ distribution="bernoulli", bag.fraction=1,verbose=FALSE)#bag fraction no se puede turnear
+
+
+                         
+                         
+
+
+
+
+ 
+# Accuracy   Kappa    
+#   0.6649944  0.3288956
+
+
+
+preditestmxmtest<-gbmmxmfinaltest$pred
+
+preditestmxmtest
+aucmxmtest<-roc(preditestmxmtest$obs,preditestmxmtest$Yes,levels=c("Yes","No"))
+
+aucmxmtest
+
+# Area under the curve: 0.801
+
+
+# Area under the curve: 0.7982
+gbmmxmfinaltest
+salmxmtest<-gbmmxmfinaltest$pred
+salmxmtest
+
+confusionMatrix(reference=salmxmtest$obs,data=salmxmtest$pred, positive="Yes")
+
+
+# corte<-0.46
+# 
+# salmxmtest$predcorte<-ifelse(salmxmtest$Yes>corte,"Yes","No")
+# salmxmtest$predcorte<-as.factor(salmxmtest$predcorte)
+# 
+# confusionMatrix(reference=salmxmtest$obs,data=salmxmtest$predcorte, positive="Yes")
+
+```
+
+
+
+
+
+
+
+
+#test gbm 1
+```{r}
+TRATATEST_test
+
+# Obtener los índices de fila como identificadores
+row_ids <- rownames(TRATATEST_test)
+gbmgridmxm<-expand.grid(shrinkage=c(0.03),
+ n.minobsinnode=c(5),
+ n.trees=c(1500),
+ interaction.depth=c(2))
+prediccionestest <- predict(object = gbmmxmfinal,
+                    newdata = TRATATEST_test,
+                    n.trees = 1000,tuneGrid=gbmgridmxm)
+
+gbm_pred <- predict(object = gbmmxmfinal,
+                    newdata = TRATATEST_test,
+                    n.trees = 1000,tuneGrid=gbmgridmxm,type = "prob")
+
+comparaciontest <- data.frame(RowID = row_ids, pred = prediccionestest, obs = TRATATEST_test$subtema1,prob=gbm_pred)
+
+
+comparaciontest$obs<-as.factor(comparaciontest$obs)
+
+confusionMatrix(reference=comparaciontest$obs,data=comparaciontest$pred, positive="Yes")
+
+
+corte<-0.45
+
+comparaciontest$predcorte<-ifelse(comparaciontest$Yes>corte,"Yes","No")
+comparaciontest$predcorte<-as.factor(comparaciontest$predcorte)
+
+confusionMatrix(reference=comparaciontest$obs,data=comparaciontest$predcorte, positive="Yes")
+
+
+
+```
+
+
+
+
+
+
+
+#SVM
+```{r}
+
+source ("cruzada SVM binaria lineal.R")
+source ("cruzada SVM binaria polinomial.R")
+source ("cruzada SVM binaria RBF.R")
+SVMgridfinal<-expand.grid(C=c(5),
+                     sigma=c(0.05))
+
+controlfinal<-trainControl(method = "cv",
+                      number=4,savePredictions = "all") 
+
+
+SVMMXMRBFfinal<- train(data=data3,factor(subtema1)~targetbin1+ targetbinloc1+ ANONIMO1+ INST_DERIVAC1+ 
+DENUNCIANTE2+ DENUNCIANTE3+ MES_INGRESO2+ MES_INGRESO3+ 
+PARTE_DIA_DERIVAC1+ PARTE_DIA_DERIVAC2,
+            method="svmRadial",trControl=controlfinal,
+            tuneGrid=SVMgridfinal,verbose=FALSE)
+
+SVMMXMRBFfinal
+
+
+SVMMXMRBFfinal
+salRBFmxm<-SVMMXMRBFfinal$pred
+salRBFmxm
+
+confusionMatrix(reference=salRBFmxm$obs,data=salRBFmxm$pred, positive="Yes")
+
+```
+
+
+
+
+#XBOOST
+
+```{r}  
+
+
+
+source ("cruzada xgboost binaria.R")
+xgbmgridfinal<-expand.grid(
+ min_child_weight=c(10),
+ eta=c(0.01),
+ nrounds=c(800),
+ max_depth=6,gamma=0,colsample_bytree=1,subsample=1)
+
+controlfinalxbg<-trainControl(method = "cv",number=4,savePredictions = "all",
+ classProbs=TRUE) 
+
+xgbmmxmfinal<- train(factor(subtema1)~targetbin1+ targetbinloc1+ ANONIMO1+ INST_DERIVAC1+ 
+DENUNCIANTE2+ DENUNCIANTE3+ MES_INGRESO2+ MES_INGRESO3+ 
+PARTE_DIA_DERIVAC1+ PARTE_DIA_DERIVAC2,
+ data=data3,
+ method="xgbTree",trControl=controlfinalxbg,
+ tuneGrid=xgbmgridfinal,verbose=FALSE)
+
+xgbmmxmfinal
+
+preditestxgb<-xgbmmxmfinal$pred
+
+preditestxgb
+aucxgb<-roc(preditestxgb$obs,preditestxgb$Yes,levels=c("Yes","No"))
+
+aucxgb
+#Area under the curve: 0.7932
+
+xgbmmxmfinal
+salxgbmmxm<-xgbmmxmfinal$pred
+salxgbmmxm
+
+confusionMatrix(reference=salxgbmmxm$obs,data=salxgbmmxm$pred, positive="Yes")
+
+
+aucxgb2 <- roc(preditestxgb$obs, preditestxgb$Yes, levels = c("Yes", "No"))
+coords(aucxgb2, "best", ret = "threshold", best.method = "closest.topleft")
+
+
+
+
+
+
+  # Arbol simple
+  library(rpart)
+  library(rpart.plot)
+  
+  arbol2 <- rpart(factor(subtema1)~targetbin1+ targetbinloc1+ ANONIMO1+ INST_DERIVAC1+ 
+DENUNCIANTE2+ DENUNCIANTE3+ MES_INGRESO2+ MES_INGRESO3+ 
+PARTE_DIA_DERIVAC1+ PARTE_DIA_DERIVAC2, data = data3,
+                  minbucket =10,method = "class",parms=list(split="gini"),cp=0)
+  
+  summary(arbol2)
+  rpart.plot(arbol2,extra=105,nn=TRUE,tweak =1.9) #tweak es tamaño de arbol 
+  
+  tree_model <- rpart(xgbmmxmfinal, data = data3)
+
+# Mostrar el árbol
+plot(tree_model)
+text(tree_model)
+
+corte4<-0.46
+
+
+salxgbmmxm$predcorte<-ifelse(salxgbmmxm$Yes>corte4,"Yes","No")
+salxgbmmxm$predcorte<-as.factor(salxgbmmxm$predcorte)
+
+confusionMatrix(reference=salxgbmmxm$obs,data=salxgbmmxm$predcorte, positive="Yes")
+
+```
+
+
+
+#test xboost
+
+```{r}  
+
+source ("cruzada xgboost binaria.R")
+xgbmgridfinal<-expand.grid(
+ min_child_weight=c(10),
+ eta=c(0.01),
+ nrounds=c(800),
+ max_depth=6,gamma=0,colsample_bytree=1,subsample=1)
+
+controlfinalxbg<-trainControl(method = "cv",number=4,savePredictions = "all",
+ classProbs=TRUE) 
+
+xgbmmxmfinalt<- train(factor(subtema1)~targetbin1+ targetbinloc1+ ANONIMO1+ INST_DERIVAC1+ 
+DENUNCIANTE2+ DENUNCIANTE3+ MES_INGRESO2+ MES_INGRESO3+ 
+PARTE_DIA_DERIVAC1+ PARTE_DIA_DERIVAC2,
+ data=TRATATEST_test,
+ method="xgbTree",trControl=controlfinalxbg,
+ tuneGrid=xgbmgridfinal,verbose=FALSE)
+
+xgbmmxmfinalt
+
+preditestxgbt<-xgbmmxmfinalt$pred
+
+preditestxgbt
+aucxgbt<-roc(preditestxgbt$obs,preditestxgbt$Yes,levels=c("Yes","No"))
+
+aucxgbt
+#Area under the curve: 0.7038
+
+xgbmmxmfinalt
+salxgbmmxmt<-xgbmmxmfinalt$pred
+salxgbmmxmt
+
+confusionMatrix(reference=salxgbmmxmt$obs,data=salxgbmmxmt$pred, positive="Yes")
+
+# corte<-0.46
+# 
+# salxgbmmxmt$predcorte<-ifelse(salxgbmmxmt$Yes>corte,"Yes","No")
+# salxgbmmxmt$predcorte<-as.factor(salxgbmmxmt$predcorte)
+# 
+# confusionMatrix(reference=salxgbmmxmt$obs,data=salxgbmmxmt$predcorte, positive="Yes")
+
+
+
+
+
+```
+
+
+
+
+#test xboost 1
+```{r}
+TRATATEST_test
+
+# Obtener los índices de fila como identificadores
+row_ids <- rownames(TRATATEST_test)
+
+xgbmgridfinal<-expand.grid(
+ min_child_weight=c(10),
+ eta=c(0.01),
+ nrounds=c(500),
+ max_depth=6,gamma=0,colsample_bytree=1,subsample=1)
+
+prediccionestestxb <- predict(object = xgbmmxmfinal,
+                    newdata = TRATATEST_test,
+                   tuneGrid=xgbmgridfinal)
+
+gbm_predxb <- predict(object = xgbmmxmfinal,
+                    newdata = TRATATEST_test,
+                    tuneGrid=xgbmgridfinal,type = "prob")
+
+comparaciontestxb <- data.frame(RowID = row_ids, pred = prediccionestestxb, obs = TRATATEST_test$subtema1,prob=gbm_predxb)
+comparaciontestxb
+
+comparaciontestxb$obs<-as.factor(comparaciontestxb$obs)
+
+confusionMatrix(reference=comparaciontestxb$obs,data=comparaciontestxb$pred, positive="Yes")
+
+```
+
+#RF
+```{r}
+library(caret)
+set.seed(1234) 
+
+rfgridrf<-expand.grid(mtry=c(4))
+
+controlrf<-trainControl(method = "cv",number=4,savePredictions = "all") 
+
+rfmxm<- train( factor(subtema1)~targetbin1+ targetbinloc1+ ANONIMO1+ INST_DERIVAC1+ 
+DENUNCIANTE2+ DENUNCIANTE3+ MES_INGRESO2+ MES_INGRESO3+ 
+PARTE_DIA_DERIVAC1+ PARTE_DIA_DERIVAC2,
+            data=data3, method="rf",trControl=controlrf,tuneGrid=rfgridrf, linout = FALSE,ntree=1500,nodesize=20,replace=TRUE,sampsize=800) 
+
+
+rfmxm
+
+prerf<-rfmxm$pred
+
+prerf
+
+#Area under the curve: 0.7932
+
+rfmxm
+salrf<-rfmxm$pred
+salrf
+
+confusionMatrix(reference=salrf$obs,data=salrf$pred, positive="Yes")
+
+
+
+
+```
+
+
+
+
+
+
+#test rf 
+```{r}
+TRATATEST_test
+set.seed(1234) 
+
+rfgridrf<-expand.grid(mtry=c(4))
+
+controlrf<-trainControl(method = "cv",number=4,savePredictions = "all") 
+
+rfmxmt<- train( factor(subtema1)~targetbin1+ targetbinloc1+ ANONIMO1+ INST_DERIVAC1+ 
+DENUNCIANTE2+ DENUNCIANTE3+ MES_INGRESO2+ MES_INGRESO3+ 
+PARTE_DIA_DERIVAC1+ PARTE_DIA_DERIVAC2,
+            data=TRATATEST_test, method="rf",trControl=controlrf,tuneGrid=rfgridrf, linout = FALSE,ntree=1500,nodesize=20,replace=TRUE) 
+
+
+rfmxmt
+
+
+salrft<-rfmxmt$pred
+salrft
+
+confusionMatrix(reference=salrft$obs,data=salrft$pred, positive="Yes")
+
+```
+
+#red
+```{r} 
+controlmaxi<-trainControl(method = "cv",
+                      number=4,savePredictions = "all") 
+
+set.seed(1234)
+nnetgridmaxi <-  expand.grid(size=c(4),decay=c(0.0001),bag=F)
+
+completomaxi1<-data.frame()
+listaitermaxi<-c(1000)
+
+for (iter in listaitermaxi)
+{
+  rednnetmaxi1<- train(subtema1~targetbin1+ targetbinloc1+ ANONIMO1+ INST_DERIVAC1+ 
+DENUNCIANTE2+ DENUNCIANTE3+ MES_INGRESO2+ MES_INGRESO3+ 
+PARTE_DIA_DERIVAC1+ PARTE_DIA_DERIVAC2,
+                  data=data3,
+                  method="avNNet",linout = TRUE,maxit=iter,
+                  trControl=controlmaxi,repeats=5,tuneGrid=nnetgridmaxi,trace=F)
+  # Añado la columna del parametro de iteraciones
+  rednnetmaxi1$results$itera<-iter
+  # Voy incorporando los resultados a completo
+  completomaxi1<-rbind(completomaxi1,rednnetmaxi1$results)
+  
+  
+}
+
+
+rednnetmaxi1
+
+prered<-rednnetmaxi1$pred
+
+prered
+
+#Area under the curve: 0.7932
+
+rednnetmaxi1
+salred<-rednnetmaxi1$pred
+salred
+
+confusionMatrix(reference=salred$obs,data=salred$pred, positive="Yes")
+
+
+```
+
+
+#red t
+```{r} 
+controlmaxi<-trainControl(method = "cv",
+                      number=4,savePredictions = "all") 
+
+set.seed(1234)
+nnetgridmaxi <-  expand.grid(size=c(4),decay=c(0.0001),bag=F)
+
+completomaxi1<-data.frame()
+listaitermaxi<-c(1000)
+
+for (iter in listaitermaxi)
+{
+  rednnetmaxi1t<- train(subtema1~targetbin1+ targetbinloc1+ ANONIMO1+ INST_DERIVAC1+ 
+DENUNCIANTE2+ DENUNCIANTE3+ MES_INGRESO2+ MES_INGRESO3+ 
+PARTE_DIA_DERIVAC1+ PARTE_DIA_DERIVAC2,
+                  data=TRATATEST_test,
+                  method="avNNet",linout = TRUE,maxit=iter,
+                  trControl=controlmaxi,repeats=5,tuneGrid=nnetgridmaxi,trace=F)
+  # Añado la columna del parametro de iteraciones
+  rednnetmaxi1$results$itera<-iter
+  # Voy incorporando los resultados a completo
+  completomaxi1<-rbind(completomaxi1,rednnetmaxi1$results)
+  
+  
+}
+
+
+rednnetmaxi1t
+
+preredt<-rednnetmaxi1t$pred
+
+preredt
+
+#Area under the curve: 0.7932
+
+rednnetmaxi1t
+salredt<-rednnetmaxi1t$pred
+salredt
+
+confusionMatrix(reference=salredt$obs,data=salredt$pred, positive="Yes")
+
+
+```
+
+
+
+
+
+##Media gbm
+```{r}  
+mediasgbm<-cruzadagbmbin(data=data3, vardep="subtema1",
+   listconti=c("targetbin1", "targetbinloc1", "ANONIMO1", "INST_DERIVAC1", 
+"DENUNCIANTE2", "DENUNCIANTE3", "MES_INGRESO2", "MES_INGRESO3", 
+"PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2"),
+ listclass=c(""),
+  grupos=4,sinicio=1234,repe=25,
+n.minobsinnode=5,shrinkage=0.05,n.trees=1000.,interaction.depth=2)
+
+  mediasgbm$modelo="GBM.mxm"
+
+  mediasgbmbis<-as.data.frame(mediasgbm[1])
+mediasgbmbis$modelo<-"GBM.mxm"
+
+  
+mediasgbmt<-cruzadagbmbin(data=TRATATEST_test, vardep="subtema1",
+   listconti=c("targetbin1", "targetbinloc1", "ANONIMO1", "INST_DERIVAC1", 
+"DENUNCIANTE2", "DENUNCIANTE3", "MES_INGRESO2", "MES_INGRESO3", 
+"PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2"),
+ listclass=c(""),
+  grupos=4,sinicio=1234,repe=25,
+n.minobsinnode=5,shrinkage=0.05,n.trees=1000.,interaction.depth=2)
+
+  mediasgbmt$modelo="GBM.mxm.Test"
+  
+  
+  mediasgbmtbis<-as.data.frame(mediasgbmt[1])
+mediasgbmtbis$modelo<-"GBM.mxm.Test"
+    
+Uniongbm<-rbind(mediasgbmbis,mediasgbmtbis)
+
+dput(names(table(Uniongbm$modelo)))
+par(cex.axis=0.8)
+boxplot(data=Uniongbm,col="pink",tasa~modelo,main="TASA DE FALLOS")
+
+
+par(cex.axis=0.7)
+boxplot(data=Uniongbm,col="pink",auc~modelo,main="AUC")
+  
+```  
+
+##Media xb
+```{r}  
+
+source ("cruzada xgboost binaria.R")
+mediasxb<-cruzadaxgbmbin(data=data3, vardep="subtema1",
+   listconti=c("targetbin1", "targetbinloc1", "ANONIMO1", "INST_DERIVAC1", 
+"DENUNCIANTE2", "DENUNCIANTE3", "MES_INGRESO2", "MES_INGRESO3", 
+"PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2"),
+ listclass=c(""),
+  grupos=4,sinicio=1234,repe=25,
+   min_child_weight=10,eta=0.01,nrounds=500,max_depth=6,
+  gamma=0,colsample_bytree=1,subsample=1,
+ alpha=0,lambda=0)
+
+  mediasxb$modelo="XBoost.mxm"
+
+
+mediasxbt<-cruzadaxgbmbin(data=TRATATEST_test, vardep="subtema1",
+   listconti=c("targetbin1", "targetbinloc1", "ANONIMO1", "INST_DERIVAC1", 
+"DENUNCIANTE2", "DENUNCIANTE3", "MES_INGRESO2", "MES_INGRESO3", 
+"PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2"),
+ listclass=c(""),
+  grupos=4,sinicio=1234,repe=25,
+   min_child_weight=10,eta=0.01,nrounds=500,max_depth=6,
+  gamma=0,colsample_bytree=1,subsample=1,
+ alpha=0,lambda=0)
+
+  mediasxbt$modelo="XBoost.mxm.test"
+  
+  Unionxb<-rbind(mediasxb,mediasxbt)
+
+dput(names(table(Unionxb$modelo)))
+par(cex.axis=0.8)
+boxplot(data=Unionxb,col="pink",tasa~modelo,main="TASA DE FALLOS")
+
+
+par(cex.axis=0.7)
+boxplot(data=Unionxb,col="pink",auc~modelo,main="AUC")
+  
+  
+  
+```
+
+##Media rf
+```{r}  
+mediasrf<-cruzadarfbin(data=data3, vardep="subtema1",
+   listconti=c("targetbin1", "targetbinloc1", "ANONIMO1", "INST_DERIVAC1", 
+"DENUNCIANTE2", "DENUNCIANTE3", "MES_INGRESO2", "MES_INGRESO3", 
+"PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2"),
+ listclass=c(""),
+  grupos=10,sinicio=1234,repe=25,nodesize=20,
+  mtry=4,ntree=1500,replace=TRUE,sampsize=800)
+
+  mediasrf$modelo="RF.mxm"
+  
+  
+  mediasrft<-cruzadarfbin(data=TRATATEST_test, vardep="subtema1",
+   listconti=c("targetbin1", "targetbinloc1", "ANONIMO1", "INST_DERIVAC1", 
+"DENUNCIANTE2", "DENUNCIANTE3", "MES_INGRESO2", "MES_INGRESO3", 
+"PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2"),
+ listclass=c(""),
+  grupos=10,sinicio=1234,repe=25,nodesize=20,
+  mtry=4,ntree=1500,replace=TRUE)
+
+  mediasrft$modelo="RF.mxm.test"
+  
+  
+  Unionrf<-rbind(mediasrf,mediasrft)
+
+dput(names(table(Unionrf$modelo)))
+par(cex.axis=0.8)
+boxplot(data=Unionrf,col="pink",tasa~modelo,main="TASA DE FALLOS")
+
+
+par(cex.axis=0.7)
+boxplot(data=Unionrf,col="pink",auc~modelo,main="AUC")
+
+
+
+
+
+```  
+
+
+
+
+##Mediared redmaxi1
+```{r}
+mediasred<-cruzadaavnnetbin(data=data3,
+                          vardep="subtema1",listconti=
+                            c("targetbin1", "targetbinloc1", "ANONIMO1", "INST_DERIVAC1", 
+"DENUNCIANTE2", "DENUNCIANTE3", "MES_INGRESO2", "MES_INGRESO3", 
+"PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2"),
+                          listclass=c(""),grupos=4,sinicio=1234,repe=25,repeticiones=5,itera=1000,
+                          size=c(4),decay=c(0.0001))
+
+mediasred$modelo="Red.mxm"
+
+
+
+mediasredt<-cruzadaavnnetbin(data=TRATATEST_test,
+                          vardep="subtema1",listconti=
+                            c("targetbin1", "targetbinloc1", "ANONIMO1", "INST_DERIVAC1", 
+"DENUNCIANTE2", "DENUNCIANTE3", "MES_INGRESO2", "MES_INGRESO3", 
+"PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2"),
+                          listclass=c(""),grupos=4,sinicio=1234,repe=25,repeticiones=5,itera=1000,
+                          size=c(4),decay=c(0.0001))
+
+mediasredt$modelo="Red.mxm.test"
+
+
+
+  Unionred<-rbind(mediasred,mediasredt)
+
+dput(names(table(Unionred$modelo)))
+par(cex.axis=0.8)
+boxplot(data=Unionred,col="pink",tasa~modelo,main="TASA DE FALLOS")
+
+
+par(cex.axis=0.7)
+boxplot(data=Unionred,col="pink",auc~modelo,main="AUC")
+
+
+  Union4modelos<-rbind(mediasgbmbis,mediasgbmtbis,mediasxb,mediasxbt,mediasrf,mediasrft,mediasred,mediasredt)
+
+dput(names(table(Union4modelos$modelo)))
+par(cex.axis=0.6)
+boxplot(data=Union4modelos,col="pink",tasa~modelo,main="TASA DE FALLOS")
+
+
+par(cex.axis=0.6)
+boxplot(data=Union4modelos,col="pink",auc~modelo,main="AUC")
+
+
+```
+## Variable prediccion de ensamblado
+
+```{r}
+dput(names(TTESTbis))
+TTESTbis
+colnames(TTESTbis)[colnames(TTESTbis) == "derivacion_institucion.AREA LEGAL DEL PROGRAMA NACIONAL DE RESCATE"] <- "INST_DERIVAC2"
+preditotal = predicciones_gradient$pred
+
+predicciones_gradient <- predict(gbmmxmfinal, newdata = TRATATEST_test,type = "prob")
+predicciones_gradientstep <- predict(gbmstep, newdata = TTESTbis,type = "prob")
+predicciones_xgb <- predict(xgbmmxmfinal, newdata = TRATATEST_test,type = "prob")
+
+predicciones_gradientp <- predict(gbmmxmfinal, newdata = TRATATEST_test)
+
+
+predicciones_combinadasp <- (predicciones_gradient+predicciones_xgb+predicciones_gradientstep)/3  
+predicciones_combinadasp
+
+predicciones <- factor(ifelse(predicciones_combinadas >= 0.5, "Yes", "No"))
+predicciones      
+
+comparacion <- data.frame(RowID = row_ids, pred = predicciones_gradientp, obs = TRATATEST_test$subtema1,prob1=predicciones_gradient$Yes,prob2=predicciones_xgb$Yes,prob3=predicciones_gradientstep$Yes,ensam=predicciones_combinadasp)
+comparacion
+                       
+corte <- 0.5
+
+comparacion$pred <- ifelse(comparacion$ensam.Yes >= corte, "Yes", "No")
+comparacion
+comparacion$pred<-as.factor(comparacion$pred)
+comparacion$obs<-as.factor(comparacion$obs)
+confusionMatrix(reference=comparacion$obs,data=comparacion$pred, positive="Yes")
+
+
+```
+
+
+
+
+
+
+
+
+
+#glm
+```{r}
+
+
+control<-trainControl(method = "LGOCV",number=4,
+                      classProbs=TRUE,savePredictions = "all") #p es train 80%
+
+logifinal<- train(subtema1~ANONIMO2+ targetbinloc1+ DENUNCIANTE2+ targetbin1+ 
+DENUNCIANTE6+ MES_INGRESO3+ PARTE_DIA_DERIVAC1+ MES_INGRESO2+ 
+MES_INGRESO11+ INST_DERIVAC1+ MES_INGRESO10+ PARTE_DIA_DERIVAC2+ 
+MES_INGRESO9+ INST_DERIVAC2+ DENUNCIANTE1+ WEEKDAY_INGRESO4+ 
+DENUNCIANTE_EDAD5,data=data2,
+             method="glm",trControl=control) #glm, modelo lineal general
+
+summary(logifinal)
+logifinal #accuracy 70% de aciertos
+salglmfinal<-logifinal$pred
+salglmfinal
+
+confusionMatrix(reference=salglmfinal$obs,data=salglmfinal$pred, positive="Yes")
+
+preditestglm<-logifinal$pred
+
+preditestglm
+aucglm<-roc(preditestglm$obs,preditestglm$Yes,levels=c("Yes","No"))
+
+aucglm
+#Area under the curve: 0.7296
+
+corte<-0.5
+
+
+salglmfinal$predcorte<-ifelse(salglmfinal$Yes>corte,"Yes","No")
+salglmfinal$predcorte<-as.factor(salglmfinal$predcorte)
+
+confusionMatrix(reference=salglmfinal$obs,data=salglmfinal$predcorte, positive="Yes")
+
+
+
+```
+
+
+#graficos
+```{r}
+source("funcion resultadosgbm.R")
+library(rpart)
+library(rpart.plot)
+
+
+vardep="subtema1"
+variables3<-c("targetbin1", "targetbinloc1", "ANONIMO1", "INST_DERIVAC1", 
+"DENUNCIANTE2", "DENUNCIANTE3", "MES_INGRESO2", "MES_INGRESO3", 
+"PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2")
+#hay que quitar las comilla simple 
+
+
+# USO DE VISUALPRED 
+
+library(visualpred)
+
+listconti<-c("targetbin1", "targetbinloc1", "ANONIMO1", "INST_DERIVAC1", 
+"DENUNCIANTE2", "DENUNCIANTE3", "MES_INGRESO2", "MES_INGRESO3", 
+"PARTE_DIA_DERIVAC1", "PARTE_DIA_DERIVAC2")
+listclass<-c()
+data4<-data[,c(listconti,listclass,vardep)]
+
+
+
+
+
+resultgmb<-famdcontour(dataf=data4,listconti=listconti,listclass=listclass,vardep=vardep,title="Xgboost",title2="",selec=0,modelo="Xgboost",n.minobsinnode=10,shrink=0.01,ntreegbm=500)
+
+resultgmb[[1]]
+resultgmb[[2]]
+resultgmb[[3]]
+resultgmb[[4]]
+resultgmb[[5]]
+resultgmb[[6]]
+
+table(data4$subtema1)
+
+datosgmb<-data4[,c(listconti,listclass,vardep)]
+
+resultgbm<-famdcontour(dataf=data4,listconti=listconti,listclass=listclass,vardep=vardep,
+                    title="Xgboost",title2=" ",selec=0,modelo="gbm",classvar=0,n.minobsinnode=10,shrink=0.01,ntreegbm=500)
+resultgmb[[1]]
+resultgbm[[2]]
+resultgmb[[3]]
+resultgmb[[4]]
+resultgmb[[5]]
+resultgmb[[6]]
+
+resultgbm
+g4<-resultgbm[[2]]+theme(legend.position = "none")+xlab("")+ylab("")
+
+g4
+
+
+
+```
+
+
